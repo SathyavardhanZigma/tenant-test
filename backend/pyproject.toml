@@ -1,0 +1,19 @@
+[project]
+name = "tenant-architecture-backend"
+version = "0.1.0"
+description = "Multi-tenant (database-per-tenant) platform API"
+requires-python = ">=3.12"
+dependencies = [
+    "django==6.1",
+    "djangorestframework==3.18.0",
+    "djangorestframework-simplejwt==5.5.1",
+    "drf-yasg==1.21.15",
+    "django-cors-headers==4.9.0",
+    "python-decouple==3.8",
+    "python-dotenv==1.2.2",
+    "pymysql==1.2.0",
+    "pillow",
+]
+
+[tool.uv]
+package = false
