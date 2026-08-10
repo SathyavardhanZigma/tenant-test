@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 
 from .context import clear_current_tenant, set_current_tenant
+from .db_registry import register_tenant_database
 from .models import Tenant
 
 # Routes that never need a tenant resolved: superadmin panel + auth, schema/docs.
@@ -39,6 +40,9 @@ class TenantResolverMiddleware:
         if tenant.status != Tenant.STATUS_ACTIVE:
             return JsonResponse({'detail': 'This company account is suspended.'}, status=403)
 
+        # Register the tenant DB alias lazily when the tenant is actually used,
+        # instead of querying during AppConfig.ready().
+        register_tenant_database(tenant)
         set_current_tenant(tenant, tenant.slug)
         try:
             request.tenant = tenant
