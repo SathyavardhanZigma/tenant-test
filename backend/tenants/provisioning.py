@@ -6,7 +6,7 @@ from django.core.management import call_command
 from django.db import connection as default_connection
 
 from .db_registry import register_tenant_database
-from .models import Tenant
+from .models import Feature, Plan, Tenant, TenantModule, TenantSubscription
 from .schema_sync import sync_tenant_schema
 
 
@@ -22,7 +22,7 @@ def create_tenant_database(db_name):
 
 
 def provision_tenant(*, company_name, slug, owner_name, owner_email, owner_phone='',
-                      logo=None, module_keys=None, db_credentials=None):
+                      logo=None, module_keys=None, plan_key='', db_credentials=None):
     """End-to-end onboarding flow triggered by the configuration form submit."""
     db_credentials = db_credentials or {}
     tenant = Tenant.objects.create(
@@ -44,8 +44,20 @@ def provision_tenant(*, company_name, slug, owner_name, owner_email, owner_phone
 
     call_command('migrate', tenant=tenant.slug, verbosity=0)
 
-    for module_key in (module_keys or []):
-        tenant.modules.get_or_create(module_key=module_key, defaults={'enabled': True})
+    plan = Plan.objects.filter(key=plan_key, is_active=True).first() if plan_key else None
+    selected_keys = set(module_keys or [])
+    if plan and not selected_keys:
+        selected_keys = set(plan.features.filter(is_active=True).values_list('key', flat=True))
+
+    TenantSubscription.objects.create(tenant=tenant, plan=plan)
+
+    features_by_key = {feature.key: feature for feature in Feature.objects.filter(key__in=selected_keys)}
+    for module_key in selected_keys:
+        TenantModule.objects.get_or_create(
+            tenant=tenant,
+            module_key=module_key,
+            defaults={'feature': features_by_key.get(module_key), 'enabled': True},
+        )
 
     sync_tenant_schema(tenant)
 
