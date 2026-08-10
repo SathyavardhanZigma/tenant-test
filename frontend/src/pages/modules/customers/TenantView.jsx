@@ -13,11 +13,7 @@ export default function CustomersTenantView() {
       brand={tenant?.company_name || slug}
       brandIcon="🏢"
       brandHref={`/${slug}/dashboard`}
-      links={[
-        { label: 'Dashboard', to: `/${slug}/dashboard` },
-        { label: 'Employees', to: `/${slug}/employees` },
-        { label: 'Customers', to: `/${slug}/customers` },
-      ]}
+      links={buildTenantLinks(slug, tenant)}
       onLogout={() => {
         clearSession();
         navigate(`/${slug}/login`);
@@ -33,4 +29,11 @@ export default function CustomersTenantView() {
       header={header}
     />
   );
+}
+
+function buildTenantLinks(slug, tenant) {
+  const links = [{ label: 'Dashboard', to: `/${slug}/dashboard` }];
+  if (tenant?.features?.includes('employees')) links.push({ label: 'Employees', to: `/${slug}/employees` });
+  if (tenant?.features?.includes('customers')) links.push({ label: 'Customers', to: `/${slug}/customers` });
+  return links;
 }
