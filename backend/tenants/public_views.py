@@ -17,6 +17,7 @@ class TenantPublicInfoView(APIView):
             'company_name': tenant.company_name,
             'slug': tenant.slug,
             'logo_url': tenant.logo.url if tenant.logo else None,
+            'plan': tenant.plan,
             'features': list(
                 tenant.modules.filter(enabled=True).values_list('module_key', flat=True)
             ),

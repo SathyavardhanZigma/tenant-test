@@ -1,0 +1,42 @@
+/** Single source of truth for the platform's fixed module set — mirrors
+ * backend/tenants/entities.py (ENTITY_TO_MODULE_KEY, MODULE_CHOICES) exactly.
+ * Every screen that needs to know "what modules exist" (onboarding, field
+ * config, navigation, per-module CRUD services) should derive from this
+ * array rather than hardcoding its own copy. Adding a third module means
+ * adding one entry here and one entry in tenants/entities.py — nothing else. */
+export const AVAILABLE_MODULES = [
+  {
+    key: 'employees',
+    entity: 'employee',
+    label: 'Employees',
+    description: 'Employee records and employee-specific fields.',
+  },
+  {
+    key: 'customers',
+    entity: 'customer',
+    label: 'Customers',
+    description: 'Customer records and customer-specific fields.',
+  },
+];
+
+/** module_key -> entity ('employees' -> 'employee'), derived rather than
+ * hand-maintained as a second mapping. */
+export const MODULE_TO_ENTITY = Object.fromEntries(
+  AVAILABLE_MODULES.map((m) => [m.key, m.entity]),
+);
+
+export const PLAN_INFO = {
+  basic: { label: 'Basic', hint: 'Login + read-only access to all data.' },
+  enterprise: { label: 'Enterprise', hint: 'Login + full CRUD (create, read, update, delete).' },
+};
+
+export const MAX_RECORDS_OPTIONS = [
+  { value: '', label: 'No limit' },
+  { value: '200', label: '200 records' },
+  { value: '500', label: '500 records' },
+  { value: '1000', label: '1,000 records' },
+  { value: '2000', label: '2,000 records' },
+  { value: '5000', label: '5,000 records' },
+  { value: '10000', label: '10,000 records' },
+  { value: '50000', label: '50,000 records' },
+];

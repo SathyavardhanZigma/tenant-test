@@ -43,3 +43,36 @@ def _column_exists(connection, table_name, column_name):
     with connection.cursor() as cursor:
         description = connection.introspection.get_table_description(cursor, table_name)
     return any(col.name == column_name for col in description)
+
+
+def _table_exists(connection, table_name):
+    with connection.cursor() as cursor:
+        return table_name in connection.introspection.table_names(cursor)
+
+
+def drop_entity_table(tenant, entity):
+    """Physically DROP a tenant's Employee/Customer table — called when a
+    module is disabled for that tenant, so disabling e.g. Customers actually
+    removes its storage instead of just hiding it behind field config."""
+    model = ENTITY_TO_MODEL.get(entity)
+    if model is None:
+        return
+    connection = connections[tenant.slug]
+    if not _table_exists(connection, model._meta.db_table):
+        return
+    with connection.schema_editor() as schema_editor:
+        schema_editor.delete_model(model)
+
+
+def ensure_entity_table(tenant, entity):
+    """Recreate a tenant's Employee/Customer base table if it was previously
+    dropped (module re-enabled) — new columns for the tenant's configured
+    fields are then added by sync_tenant_schema."""
+    model = ENTITY_TO_MODEL.get(entity)
+    if model is None:
+        return
+    connection = connections[tenant.slug]
+    if _table_exists(connection, model._meta.db_table):
+        return
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(model)

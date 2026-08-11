@@ -1,22 +1,50 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { clearSession } from '../../api/auth';
-import apiClient from '../../api/client';
 import AppHeader from '../../components/ui/AppHeader';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Checkbox from '../../components/ui/Checkbox';
-import Input, { Label } from '../../components/ui/Input';
+import Input, { Label, Select } from '../../components/ui/Input';
 import PageShell from '../../components/ui/PageShell';
+import Spinner from '../../components/ui/Spinner';
+import { AVAILABLE_MODULES, MAX_RECORDS_OPTIONS } from '../../config/modules';
+import { tenantsService } from '../../services/tenantsService';
+import { SUPERADMIN_LINKS } from './links';
 
-const SUPERADMIN_LINKS = [
-  { label: 'Dashboard', to: '/__superadmin/dashboard' },
-  { label: 'Field Catalog', to: '/__superadmin/field-catalog' },
-  { label: 'Onboard', to: '/__superadmin/onboard' },
+const DEFAULT_TABLES = [
+  { table_key: 'employees', label: 'Employees', max_records: null },
+  { table_key: 'customers', label: 'Customers', max_records: null },
 ];
+
+const STEP_META = [
+  { title: 'Company', description: 'This creates the tenant identity and login URL.' },
+  { title: 'Modules', description: 'These are the modules this tenant can access.' },
+  { title: 'Tier & Plan', description: 'Caps its records and what its users can do.' },
+  { title: 'Limits', description: 'Per-table record caps for Complete-tier tenants.' },
+];
+
+function buildSteps(basePath) {
+  const paths = [basePath, `${basePath}/modules`, `${basePath}/modules/tier-plan`, `${basePath}/modules/tier-plan/limits`];
+  return paths.map((path, i) => ({ path, ...STEP_META[i] }));
+}
 
 export default function OnboardCompanyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { slug } = useParams();
+  const isEditMode = Boolean(slug);
+  const basePath = isEditMode ? `/__superadmin/companies/${slug}/edit` : '/__superadmin/onboard';
+  const STEPS = buildSteps(basePath);
+
+  const formRef = useRef(null);
+  const stepIndex = STEPS.findIndex((s) => s.path === location.pathname);
+  const step = stepIndex === -1 ? 0 : stepIndex;
+
+  const [tenantId, setTenantId] = useState(null);
+  const [loadingTenant, setLoadingTenant] = useState(isEditMode);
+  const [loadError, setLoadError] = useState(null);
+
   const [form, setForm] = useState({
     company_name: '',
     slug: '',
@@ -25,65 +53,134 @@ export default function OnboardCompanyPage() {
     owner_phone: '',
   });
   const [modules, setModules] = useState([]);
-  const [features, setFeatures] = useState([]);
-  const [plans, setPlans] = useState([]);
-  const [planKey, setPlanKey] = useState('');
+  const [tier, setTier] = useState('trial');
+  const [plan, setPlan] = useState('basic');
   const [logo, setLogo] = useState(null);
+  const [tables, setTables] = useState(DEFAULT_TABLES);
   const [submitError, setSubmitError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      apiClient.get('/superadmin/features/'),
-      apiClient.get('/superadmin/plans/'),
-    ])
-      .then(([featuresResponse, plansResponse]) => {
-        const featureList = featuresResponse.data.results ?? featuresResponse.data;
-        const planList = plansResponse.data.results ?? plansResponse.data;
-        setFeatures(featureList.filter((feature) => feature.is_active));
-        setPlans(planList.filter((plan) => plan.is_active));
-      })
-      .catch(() => setSubmitError('Could not load subscription options.'));
-  }, []);
+    if (!isEditMode) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoadingTenant(true);
+      setLoadError(null);
+      try {
+        const tenant = await tenantsService.findBySlug(slug);
+        if (!tenant) throw new Error('not found');
+        if (cancelled) return;
+
+        setTenantId(tenant.id);
+        setForm({
+          company_name: tenant.company_name ?? '',
+          slug: tenant.slug ?? '',
+          owner_name: tenant.owner_name ?? '',
+          owner_email: tenant.owner_email ?? '',
+          owner_phone: tenant.owner_phone ?? '',
+        });
+        setModules((tenant.modules ?? []).filter((m) => m.enabled).map((m) => m.module_key));
+        setTier(tenant.tier ?? 'trial');
+        setPlan(tenant.plan ?? 'basic');
+
+        const limitsRes = await tenantsService.readTableLimits(tenant.id);
+        if (cancelled) return;
+        setTables(limitsRes.data.tables ?? DEFAULT_TABLES);
+      } catch {
+        if (!cancelled) setLoadError('Could not load this company.');
+      } finally {
+        if (!cancelled) setLoadingTenant(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, slug]);
+
+  const isLastStep = step === STEPS.length - 1;
 
   const updateField = (key) => (event) => setForm((prev) => ({ ...prev, [key]: event.target.value }));
 
-  const applyPlan = (nextPlanKey) => {
-    setPlanKey(nextPlanKey);
-    const selectedPlan = plans.find((plan) => plan.key === nextPlanKey);
-    if (selectedPlan) {
-      setModules(selectedPlan.feature_keys);
-    }
-  };
-
   const toggleModule = (moduleKey) => {
-    setPlanKey('');
     setModules((prev) =>
       prev.includes(moduleKey) ? prev.filter((m) => m !== moduleKey) : [...prev, moduleKey],
     );
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setSubmitError(null);
+  const updateTableLimit = (tableKey, value) => {
+    setTables((prev) =>
+      prev.map((t) => (t.table_key === tableKey ? { ...t, max_records: value === '' ? null : Number(value) } : t)),
+    );
+  };
 
-    const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) => payload.append(key, value));
-    if (planKey) payload.append('plan_key', planKey);
-    modules.forEach((moduleKey) => payload.append('module_keys', moduleKey));
-    if (logo) payload.append('logo', logo);
+  const goNext = () => {
+    if (formRef.current && !formRef.current.checkValidity()) {
+      formRef.current.reportValidity();
+      return;
+    }
+    navigate(STEPS[Math.min(step + 1, STEPS.length - 1)].path);
+  };
+
+  const goBack = () => navigate(STEPS[Math.max(step - 1, 0)].path);
+
+  const saveCompany = async () => {
+    if (formRef.current && !formRef.current.checkValidity()) {
+      formRef.current.reportValidity();
+      return;
+    }
+    setSubmitError(null);
+    setSubmitting(true);
 
     try {
-      const response = await apiClient.post('/superadmin/tenants/', payload, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      navigate(`/__superadmin/companies/${response.data.slug}/fields`);
+      if (isEditMode) {
+        await tenantsService.update(tenantId, {
+          company_name: form.company_name,
+          owner_name: form.owner_name,
+          owner_email: form.owner_email,
+          owner_phone: form.owner_phone,
+        });
+        await tenantsService.updateModules(tenantId, modules);
+        await tenantsService.updateTableLimits(tenantId, { tier, plan, tables });
+        navigate('/__superadmin/dashboard');
+      } else {
+        const payload = new FormData();
+        Object.entries(form).forEach(([key, value]) => payload.append(key, value));
+        payload.append('tier', tier);
+        payload.append('plan', plan);
+        modules.forEach((moduleKey) => payload.append('module_keys', moduleKey));
+        if (logo) payload.append('logo', logo);
+
+        const response = await tenantsService.create(payload);
+        if (tables.some((t) => t.max_records != null)) {
+          await tenantsService.updateTableLimits(response.data.id, { tier, plan, tables });
+        }
+        navigate(`/__superadmin/companies/${response.data.slug}/fields`);
+      }
     } catch {
-      setSubmitError('Could not create the company. Check the details and try again.');
+      setSubmitError(
+        isEditMode
+          ? 'Could not save changes. Check the details and try again.'
+          : 'Could not create the company. Check the details and try again.',
+      );
+      setSubmitting(false);
     }
   };
 
-  const selectedPlan = plans.find((plan) => plan.key === planKey);
-  const selectedFeatureCount = modules.length;
+  // The primary button is always type="button" with a single stable onClick —
+  // never a type="submit" button that gets swapped in at the same DOM position
+  // when isLastStep flips. Browsers resolve a click's default action (form
+  // submit) using the button's *current* type at the end of the event, so a
+  // same-position button whose type flips button->submit mid-click would
+  // auto-submit the form the instant you land on the last step.
+  const handlePrimaryAction = () => (isLastStep ? saveCompany() : goNext());
+
+  // Kept only so pressing Enter in a text field still advances/submits.
+  const handleFormSubmit = (event) => {
+    event.preventDefault();
+    handlePrimaryAction();
+  };
 
   const header = (
     <AppHeader
@@ -98,181 +195,218 @@ export default function OnboardCompanyPage() {
     />
   );
 
+  if (loadingTenant) {
+    return (
+      <PageShell maxWidth="max-w-full" paddingX="px-20" header={header}>
+        <Spinner />
+      </PageShell>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <PageShell maxWidth="max-w-full" paddingX="px-20" header={header}>
+        <p role="alert" className="text-sm text-red-600">{loadError}</p>
+      </PageShell>
+    );
+  }
+
   return (
-    <PageShell maxWidth="max-w-5xl" header={header}>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <PageShell maxWidth="max-w-full" paddingX="px-20" header={header}>
+      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-neutral-900">Onboard Company</h1>
+          <h1 className="text-2xl font-semibold text-neutral-900">
+            {isEditMode ? `Edit ${form.company_name || slug}` : 'Onboard Company'}
+          </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Create the tenant, assign a subscription plan, then configure fields for enabled features.
+            {isEditMode
+              ? 'Update this company\'s details, modules, tier, plan, and record limits.'
+              : 'Create the tenant, pick its modules and tier, then set limits.'}
           </p>
         </div>
-        <Badge variant="accent" className="w-fit">{selectedFeatureCount} features selected</Badge>
+        <Badge variant="accent" className="w-fit">{modules.length} modules selected</Badge>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <SetupSection
-          number="1"
-          title="Company"
-          description="This creates the tenant identity and login URL."
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <Label htmlFor="company_name">Company Name</Label>
-              <Input id="company_name" value={form.company_name} onChange={updateField('company_name')} required />
-            </div>
-            <div>
-              <Label htmlFor="slug">Login Slug</Label>
-              <Input id="slug" value={form.slug} onChange={updateField('slug')} required />
-              {form.slug && <p className="mt-1 text-xs text-neutral-500">/{form.slug}/login</p>}
-            </div>
-            <div>
-              <Label htmlFor="owner_name">Owner Name</Label>
-              <Input id="owner_name" value={form.owner_name} onChange={updateField('owner_name')} required />
-            </div>
-            <div>
-              <Label htmlFor="owner_email">Owner Email</Label>
-              <Input id="owner_email" type="email" value={form.owner_email} onChange={updateField('owner_email')} required />
-            </div>
-            <div>
-              <Label htmlFor="owner_phone">Owner Phone</Label>
-              <Input id="owner_phone" value={form.owner_phone} onChange={updateField('owner_phone')} />
-            </div>
-            <div>
-              <Label htmlFor="logo">Company Logo</Label>
-              <input
-                id="logo"
-                type="file"
-                accept="image/*"
-                onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
-              />
-            </div>
-          </div>
-        </SetupSection>
+      <Stepper steps={STEPS} current={step} onStepClick={(i) => i < step && navigate(STEPS[i].path)} />
 
-        <SetupSection
-          number="2"
-          title="Subscription Plan"
-          description="Choose the commercial package first. You can still customize feature entitlements below."
-        >
-          <div className="grid gap-3 lg:grid-cols-4">
-            <PlanCard
-              title="Custom"
-              description="Select features manually."
-              active={!planKey}
-              onClick={() => setPlanKey('')}
-            />
-            {plans.map((plan) => (
-              <PlanCard
-                key={plan.key}
-                title={plan.name}
-                description={plan.description}
-                active={plan.key === planKey}
-                featureLabels={features
-                  .filter((feature) => plan.feature_keys.includes(feature.key))
-                  .map((feature) => feature.label)}
-                onClick={() => applyPlan(plan.key)}
-              />
-            ))}
+      <form ref={formRef} onSubmit={handleFormSubmit} className="mt-8">
+        <div key={step} className="wizard-step-enter rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="border-b border-neutral-100 px-6 py-5">
+            <h2 className="text-lg font-semibold text-neutral-900">{STEPS[step].title}</h2>
+            <p className="mt-1 text-sm text-neutral-500">{STEPS[step].description}</p>
           </div>
-          {selectedPlan && (
-            <p className="mt-3 text-xs text-neutral-500">
-              {selectedPlan.name} selected. Editing features below will switch this tenant to Custom.
-            </p>
-          )}
-        </SetupSection>
 
-        <SetupSection
-          number="3"
-          title="Feature Entitlements"
-          description="These are the features this tenant can access. Fields are configured after creation."
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            {features.map((feature) => (
-              <FeatureOption
-                key={feature.key}
-                feature={feature}
-                checked={modules.includes(feature.key)}
-                onChange={() => toggleModule(feature.key)}
-              />
-            ))}
-            {features.length === 0 && (
-              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">
-                No subscription features are configured.
+          <div className="p-6">
+            {step === 0 && (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="md:col-span-2 lg:col-span-3">
+                  <Label htmlFor="company_name">Company Name</Label>
+                  <Input id="company_name" value={form.company_name} onChange={updateField('company_name')} required autoFocus />
+                </div>
+                <div>
+                  <Label htmlFor="slug">Login Slug</Label>
+                  <Input id="slug" value={form.slug} onChange={updateField('slug')} required disabled={isEditMode} />
+                  {form.slug && <p className="mt-1 text-xs text-neutral-500">/{form.slug}/login{isEditMode ? ' — fixed after creation' : ''}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="owner_name">Owner Name</Label>
+                  <Input id="owner_name" value={form.owner_name} onChange={updateField('owner_name')} required />
+                </div>
+                <div>
+                  <Label htmlFor="owner_email">Owner Email</Label>
+                  <Input id="owner_email" type="email" value={form.owner_email} onChange={updateField('owner_email')} required />
+                </div>
+                <div>
+                  <Label htmlFor="owner_phone">Owner Phone</Label>
+                  <Input id="owner_phone" value={form.owner_phone} onChange={updateField('owner_phone')} />
+                </div>
+                {!isEditMode && (
+                  <div className="md:col-span-2 lg:col-span-1">
+                    <Label htmlFor="logo">Company Logo</Label>
+                    <input
+                      id="logo"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
+                      className="block w-full text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-butter-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-butter-800 hover:file:bg-butter-100"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {AVAILABLE_MODULES.map((module) => (
+                  <label
+                    key={module.key}
+                    className={`flex min-h-24 items-start gap-3 rounded-lg border px-4 py-3 text-sm transition ${
+                      modules.includes(module.key) ? 'border-butter-300 bg-butter-50' : 'border-neutral-200 bg-neutral-50'
+                    }`}
+                  >
+                    <Checkbox checked={modules.includes(module.key)} onChange={() => toggleModule(module.key)} className="mt-1" />
+                    <span>
+                      <span className="block font-medium text-neutral-900">{module.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-neutral-500">{module.description}</span>
+                      {isEditMode && (
+                        <span className="mt-1 block text-xs font-medium text-red-600">
+                          Unchecking this permanently drops its table and data.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="tier">Tier</Label>
+                  <Select id="tier" value={tier} onChange={(e) => setTier(e.target.value)}>
+                    <option value="trial">Trial (5 records/table)</option>
+                    <option value="complete">Complete (configurable)</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="plan">Plan</Label>
+                  <Select id="plan" value={plan} onChange={(e) => setPlan(e.target.value)}>
+                    <option value="basic">Basic (login + read-only)</option>
+                    <option value="enterprise">Enterprise (login + full CRUD)</option>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-butter-200 bg-butter-50 px-4 py-3 text-xs text-butter-800">
+                  {tier === 'trial'
+                    ? 'Trial tenants are hard-capped at 5 records per table regardless of these settings.'
+                    : `Next step: configure fields${isEditMode ? '' : ' after creation'}. Set a per-table cap below, or leave "No limit" for unlimited records.`}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {tables.map((t) => (
+                    <div key={t.table_key}>
+                      <Label htmlFor={`limit_${t.table_key}`}>{t.label}</Label>
+                      {tier === 'trial' ? (
+                        <span className="inline-flex w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400">
+                          5 (trial fixed)
+                        </span>
+                      ) : (
+                        <Select
+                          id={`limit_${t.table_key}`}
+                          value={t.max_records ?? ''}
+                          onChange={(e) => updateTableLimit(t.table_key, e.target.value)}
+                        >
+                          {MAX_RECORDS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </Select>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </SetupSection>
-
-        <div className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-neutral-900">Next step: configure fields</p>
-            <p className="text-xs text-neutral-500">
-              After creation, only enabled feature sections will show field choices.
-            </p>
-          </div>
-          <Button type="submit" className="w-full sm:w-auto">Create & continue</Button>
         </div>
 
-        {submitError && <p role="alert" className="text-sm text-red-600">{submitError}</p>}
+        {submitError && <p role="alert" className="mt-4 text-sm text-red-600">{submitError}</p>}
+
+        <div className="mt-6 flex items-center justify-between">
+          <Button type="button" variant="secondary" onClick={goBack} disabled={step === 0}>
+            Back
+          </Button>
+          <Button
+            type="button"
+            variant={isLastStep ? 'create' : 'primary'}
+            size="lg"
+            onClick={handlePrimaryAction}
+            disabled={isLastStep && submitting}
+          >
+            {isLastStep ? (submitting ? 'Saving...' : (isEditMode ? 'Save changes' : 'Create & continue')) : 'Next'}
+          </Button>
+        </div>
       </form>
     </PageShell>
   );
 }
 
-function SetupSection({ number, title, description, children }) {
+function Stepper({ steps, current, onStepClick }) {
   return (
-    <section className="rounded-lg border border-neutral-200 bg-white shadow-sm">
-      <div className="flex gap-4 border-b border-neutral-100 px-5 py-4">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
-          {number}
-        </span>
-        <div>
-          <h2 className="font-semibold text-neutral-900">{title}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{description}</p>
-        </div>
-      </div>
-      <div className="p-5">{children}</div>
-    </section>
-  );
-}
-
-function PlanCard({ title, description, featureLabels = [], active, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-36 rounded-lg border p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-        active ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-neutral-200 bg-neutral-50 hover:bg-white'
-      }`}
-    >
-      <span className="block font-semibold text-neutral-900">{title}</span>
-      <span className="mt-1 block text-xs leading-5 text-neutral-500">{description}</span>
-      {featureLabels.length > 0 && (
-        <span className="mt-3 flex flex-wrap gap-1.5">
-          {featureLabels.map((label) => (
-            <Badge key={label} variant="neutral">{label}</Badge>
-          ))}
-        </span>
-      )}
-    </button>
-  );
-}
-
-function FeatureOption({ feature, checked, onChange }) {
-  return (
-    <label
-      className={`flex min-h-24 items-start gap-3 rounded-lg border px-4 py-3 text-sm transition ${
-        checked ? 'border-indigo-300 bg-indigo-50/70' : 'border-neutral-200 bg-neutral-50'
-      }`}
-    >
-      <Checkbox checked={checked} onChange={onChange} className="mt-1" />
-      <span>
-        <span className="block font-medium text-neutral-900">{feature.label}</span>
-        <span className="mt-1 block text-xs leading-5 text-neutral-500">{feature.description}</span>
-        {feature.entity && <Badge variant="accent" className="mt-3">Has fields</Badge>}
-      </span>
-    </label>
+    <ol className="flex items-center">
+      {steps.map((s, i) => {
+        const state = i < current ? 'done' : i === current ? 'current' : 'upcoming';
+        return (
+          <li key={s.title} className="flex flex-1 items-center last:flex-none">
+            <button
+              type="button"
+              onClick={() => onStepClick(i)}
+              disabled={state === 'upcoming'}
+              className="flex flex-col items-center gap-2 disabled:cursor-default"
+            >
+              <span
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition ${
+                  state === 'done'
+                    ? 'bg-butter-400 text-neutral-900'
+                    : state === 'current'
+                      ? 'bg-butter-400 text-neutral-900 ring-4 ring-butter-100'
+                      : 'bg-neutral-100 text-neutral-400'
+                }`}
+              >
+                {state === 'done' ? '✓' : i + 1}
+              </span>
+              <span className={`text-xs font-medium whitespace-nowrap ${state === 'upcoming' ? 'text-neutral-400' : 'text-neutral-900'}`}>
+                {s.title}
+              </span>
+            </button>
+            {i < steps.length - 1 && (
+              <span className={`mx-3 h-0.5 flex-1 rounded transition ${i < current ? 'bg-butter-400' : 'bg-neutral-200'}`} />
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

@@ -6,6 +6,7 @@ import CustomersTenantView from './pages/modules/customers/TenantView';
 import EmployeesSuperAdminView from './pages/modules/employees/SuperAdminView';
 import EmployeesTenantView from './pages/modules/employees/TenantView';
 import CompanyFieldConfigPage from './pages/superadmin/CompanyFieldConfigPage';
+import CompanyLimitsPage from './pages/superadmin/CompanyLimitsPage';
 import CompanyUsersPage from './pages/superadmin/CompanyUsersPage';
 import SuperAdminDashboardPage from './pages/superadmin/DashboardPage';
 import FieldCatalogPage from './pages/superadmin/FieldCatalogPage';
@@ -48,8 +49,24 @@ export default function App() {
         path="/__superadmin/dashboard"
         element={<RequireSuperAdmin><SuperAdminDashboardPage /></RequireSuperAdmin>}
       />
+      {/* Onboarding wizard — one route per step so each section is a real,
+          bookmarkable/back-button-able URL (Company -> Modules -> Tier & Plan
+          -> Limits). The same component also handles editing an existing
+          company under /__superadmin/companies/:slug/edit/... below. */}
       <Route
         path="/__superadmin/onboard"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/onboard/modules"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/onboard/modules/tier-plan"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/onboard/modules/tier-plan/limits"
         element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
       />
       <Route
@@ -73,6 +90,29 @@ export default function App() {
       <Route
         path="/__superadmin/companies/:slug/users"
         element={<RequireSuperAdmin><CompanyUsersPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/limits"
+        element={<RequireSuperAdmin><CompanyLimitsPage /></RequireSuperAdmin>}
+      />
+
+      {/* Edit an existing company through the same step wizard as onboarding,
+          prefilled with its current data. */}
+      <Route
+        path="/__superadmin/companies/:slug/edit"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/edit/modules"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/edit/modules/tier-plan"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/edit/modules/tier-plan/limits"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
       />
 
       {/* Dynamic tenant-aware routes, resolved by company slug */}

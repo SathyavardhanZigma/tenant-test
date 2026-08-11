@@ -2,7 +2,7 @@ const VARIANTS = {
   success: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   danger: 'bg-red-50 text-red-700 ring-red-600/10',
   neutral: 'bg-neutral-100 text-neutral-700 ring-neutral-500/10',
-  accent: 'bg-amber-100 text-amber-800 ring-amber-600/20',
+  accent: 'bg-butter-100 text-butter-800 ring-butter-600/20',
 };
 
 export default function Badge({ variant = 'neutral', className = '', ...props }) {

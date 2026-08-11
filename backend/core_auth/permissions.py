@@ -1,6 +1,7 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from tenants.features import entity_to_feature_key
+from tenants.entities import ENTITY_TO_MODULE_KEY
+from tenants.models import Tenant
 
 
 class IsTenantUserOrSuperAdmin(BasePermission):
@@ -10,7 +11,12 @@ class IsTenantUserOrSuperAdmin(BasePermission):
     - a superadmin JWT (role=superadmin), which may access ANY company —
       this is what lets Superadmin open a tenant's data directly, per the
       "superadmin can access all the db's with respect to the companies"
-      requirement.
+      requirement. Superadmin always has full CRUD regardless of plan/tier.
+
+    Also requires the relevant module (employees/customers) to be enabled
+    for this tenant, and — for a tenant user — respects the tenant's plan:
+    Basic gets login + read-only access to all data; Enterprise gets full
+    CRUD. See Tenant.plan.
     """
 
     def has_permission(self, request, view):
@@ -19,21 +25,20 @@ class IsTenantUserOrSuperAdmin(BasePermission):
             return False
 
         role = token.get('role')
-        has_valid_actor = False
         if role == 'superadmin':
-            has_valid_actor = True
-        elif role == 'tenant_user':
-            has_valid_actor = token.get('tenant_slug') == getattr(request.tenant, 'slug', None)
-
-        if not has_valid_actor:
+            return True
+        if role != 'tenant_user' or token.get('tenant_slug') != getattr(request.tenant, 'slug', None):
             return False
 
-        feature_key = entity_to_feature_key().get(getattr(view, 'entity', None))
-        if not feature_key:
+        tenant = getattr(request, 'tenant', None)
+        if tenant is None:
+            return False
+
+        if tenant.plan == Tenant.PLAN_BASIC and request.method not in SAFE_METHODS:
+            return False
+
+        module_key = ENTITY_TO_MODULE_KEY.get(getattr(view, 'entity', None))
+        if not module_key:
             return True
 
-        tenant = getattr(request, 'tenant', None)
-        return (
-            tenant is not None
-            and tenant.modules.filter(module_key=feature_key, enabled=True).exists()
-        )
+        return tenant.modules.filter(module_key=module_key, enabled=True).exists()

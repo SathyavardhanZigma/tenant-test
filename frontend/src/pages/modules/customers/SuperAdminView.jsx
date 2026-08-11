@@ -2,12 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { clearSession } from '../../../api/auth';
 import AppHeader from '../../../components/ui/AppHeader';
 import EntityManager from '../shared/EntityManager';
-
-const SUPERADMIN_LINKS = [
-  { label: 'Dashboard', to: '/__superadmin/dashboard' },
-  { label: 'Field Catalog', to: '/__superadmin/field-catalog' },
-  { label: 'Onboard', to: '/__superadmin/onboard' },
-];
+import { SUPERADMIN_LINKS } from '../../superadmin/links';
 
 /** Superadmin browsing a specific company's Customer data directly —
  * see modules/employees/SuperAdminView.jsx for the equivalent Employee-side explanation. */

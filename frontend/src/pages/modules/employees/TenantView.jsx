@@ -27,6 +27,7 @@ export default function EmployeesTenantView() {
       entity="employees"
       title={`${tenant?.company_name || slug} — Employees`}
       header={header}
+      readOnly={tenant?.plan === 'basic'}
     />
   );
 }

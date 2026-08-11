@@ -12,5 +12,8 @@ def build_dynamic_customer_serializer(tenant):
     return type(
         'DynamicCustomerSerializer',
         (serializers.ModelSerializer,),
-        {'Meta': type('Meta', (), {'model': model, 'fields': '__all__'})},
+        {'Meta': type('Meta', (), {
+            'model': model, 'fields': '__all__',
+            'extra_kwargs': {'code': {'read_only': True}},
+        })},
     )

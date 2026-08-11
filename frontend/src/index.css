@@ -1,18 +1,127 @@
 @import "tailwindcss";
 
+/* Brand palette — butter yellow primary, white secondary/tertiary. Defined
+ * as Tailwind v4 theme tokens so bg-butter-400, text-butter-700, etc. are
+ * available everywhere, instead of hardcoding hex across components. */
+@theme {
+  --color-butter-50: #fffdf5;
+  --color-butter-100: #fff9e0;
+  --color-butter-200: #fff0b3;
+  --color-butter-300: #ffe680;
+  --color-butter-400: #ffda47;
+  --color-butter-500: #f5c518;
+  --color-butter-600: #d4a017;
+  --color-butter-700: #a67c00;
+  --color-butter-800: #7a5c00;
+  --color-butter-900: #4d3900;
+}
+
 body {
-  background-color: #fffbeb; /* amber-50 */
+  background-color: #fafafa; /* neutral-50 */
   color: #171717; /* neutral-900 */
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background-color: #c7d2fe; /* indigo-200 */
-  color: #1e1b4b;
+  background-color: #fff0b3; /* butter-200 */
+  color: #4d3900; /* butter-900 */
 }
 
 * {
   scrollbar-width: thin;
   scrollbar-color: #e5e5e5 transparent;
+}
+
+/* ---- Login page: floating 3D decoration + tilt-card animations ---- */
+
+@keyframes auth-float-a {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate3d(1, 1, 0, 0deg); }
+  50% { transform: translate3d(18px, -26px, 0) rotate3d(1, 1, 0, 25deg); }
+}
+
+@keyframes auth-float-b {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate3d(1, -1, 0.5, 0deg); }
+  50% { transform: translate3d(-22px, 20px, 0) rotate3d(1, -1, 0.5, -20deg); }
+}
+
+@keyframes auth-float-c {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, -16px, 0) rotate(12deg); }
+}
+
+@keyframes auth-blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(24px, -18px) scale(1.08); }
+  66% { transform: translate(-18px, 14px) scale(0.94); }
+}
+
+@keyframes auth-spin-slow {
+  from { transform: rotate3d(0.4, 1, 0.2, 0deg); }
+  to { transform: rotate3d(0.4, 1, 0.2, 360deg); }
+}
+
+@keyframes auth-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.auth-float-a { animation: auth-float-a 7s ease-in-out infinite; }
+.auth-float-b { animation: auth-float-b 9s ease-in-out infinite; }
+.auth-float-c { animation: auth-float-c 5.5s ease-in-out infinite; }
+.auth-blob { animation: auth-blob 12s ease-in-out infinite; }
+.auth-spin-slow { animation: auth-spin-slow 16s linear infinite; transform-style: preserve-3d; }
+
+.auth-shimmer-text {
+  background: linear-gradient(90deg, #a67c00 0%, #f5c518 25%, #ffda47 50%, #f5c518 75%, #a67c00 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: auth-shimmer 6s linear infinite;
+}
+
+.auth-tilt-card {
+  transform-style: preserve-3d;
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-float-a, .auth-float-b, .auth-float-c, .auth-blob, .auth-spin-slow, .auth-shimmer-text {
+    animation: none;
+  }
+  .auth-tilt-card {
+    transition: none;
+  }
+}
+
+/* ---- Wizard step transition ---- */
+
+@keyframes wizard-step-enter {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.wizard-step-enter {
+  animation: wizard-step-enter 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-step-enter { animation: none; }
+}
+
+/* ---- Modal ---- */
+
+@keyframes modal-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-pop {
+  animation: modal-pop 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-pop { animation: none; }
 }

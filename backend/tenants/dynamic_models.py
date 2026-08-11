@@ -43,6 +43,7 @@ def get_dynamic_model(entity, tenant):
     static_model = _STATIC_MODEL[entity]
     attrs = {
         '__module__': static_model.__module__,
+        'code': models.CharField(max_length=64, null=True, blank=True),
         'created_at': models.DateTimeField(auto_now_add=True),
         'updated_at': models.DateTimeField(auto_now=True),
     }

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import apiClient from '../api/client';
+import { publicService } from '../services/publicService';
 
 const TenantContext = createContext(null);
 
@@ -22,8 +22,8 @@ export function TenantProvider({ children }) {
 
     // Public tenant branding lookup (logo/company name) — resolved from the
     // URL slug before login, per the config/tenant-onboarding flow.
-    apiClient
-      .get(`/${companySlug}/public-info/`)
+    publicService
+      .getTenantInfo(companySlug)
       .then((response) => {
         if (!cancelled) setTenant(response.data);
       })
