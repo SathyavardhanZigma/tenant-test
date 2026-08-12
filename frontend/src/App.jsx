@@ -70,6 +70,10 @@ export default function App() {
         element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
       />
       <Route
+        path="/__superadmin/onboard/modules/tier-plan/limits/fields"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
         path="/__superadmin/field-catalog"
         element={<RequireSuperAdmin><FieldCatalogPage /></RequireSuperAdmin>}
       />
@@ -112,6 +116,10 @@ export default function App() {
       />
       <Route
         path="/__superadmin/companies/:slug/edit/modules/tier-plan/limits"
+        element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/edit/modules/tier-plan/limits/fields"
         element={<RequireSuperAdmin><OnboardCompanyPage /></RequireSuperAdmin>}
       />
 

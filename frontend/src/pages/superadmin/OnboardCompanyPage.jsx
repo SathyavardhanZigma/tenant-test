@@ -4,15 +4,18 @@ import { clearSession } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
+import { Card } from '../../components/ui/Card';
 import Checkbox from '../../components/ui/Checkbox';
+import ColorField from '../../components/ui/ColorField';
 import Input, { Label, Select } from '../../components/ui/Input';
 import PageShell from '../../components/ui/PageShell';
 import Spinner from '../../components/ui/Spinner';
-import { AVAILABLE_MODULES, MAX_RECORDS_OPTIONS } from '../../config/modules';
+import { AVAILABLE_MODULES, MAX_RECORDS_OPTIONS, MODULE_TO_ENTITY, TRIAL_RECORD_LIMIT } from '../../config/modules';
+import { fieldCatalogService } from '../../services/fieldCatalogService';
 import { tenantsService } from '../../services/tenantsService';
 import { SUPERADMIN_LINKS } from './links';
 
-const DEFAULT_TABLES = [
+const DEFAULT_TABLES = [      
   { table_key: 'employees', label: 'Employees', max_records: null },
   { table_key: 'customers', label: 'Customers', max_records: null },
 ];
@@ -22,10 +25,17 @@ const STEP_META = [
   { title: 'Modules', description: 'These are the modules this tenant can access.' },
   { title: 'Tier & Plan', description: 'Caps its records and what its users can do.' },
   { title: 'Limits', description: 'Per-table record caps for Complete-tier tenants.' },
+  { title: 'Fields', description: 'Which columns each module\'s table has, and which are required.' },
 ];
 
 function buildSteps(basePath) {
-  const paths = [basePath, `${basePath}/modules`, `${basePath}/modules/tier-plan`, `${basePath}/modules/tier-plan/limits`];
+  const paths = [
+    basePath,
+    `${basePath}/modules`,
+    `${basePath}/modules/tier-plan`,
+    `${basePath}/modules/tier-plan/limits`,
+    `${basePath}/modules/tier-plan/limits/fields`,
+  ];
   return paths.map((path, i) => ({ path, ...STEP_META[i] }));
 }
 
@@ -51,44 +61,78 @@ export default function OnboardCompanyPage() {
     owner_name: '',
     owner_email: '',
     owner_phone: '',
+    primary_color: '#f5c518',
+    secondary_color: '#171717',
   });
   const [modules, setModules] = useState([]);
   const [tier, setTier] = useState('trial');
-  const [plan, setPlan] = useState('basic');
+  // Plan (CRUD access) and tier (record cap) are independent — Trial tenants
+  // get full CRUD too, just capped at TRIAL_RECORD_LIMIT records. Default to
+  // Enterprise so picking Trial doesn't silently leave a tenant read-only.
+  const [plan, setPlan] = useState('enterprise');
   const [logo, setLogo] = useState(null);
   const [tables, setTables] = useState(DEFAULT_TABLES);
+  const [fieldRows, setFieldRows] = useState([]);
   const [submitError, setSubmitError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isEditMode) return;
     let cancelled = false;
 
     (async () => {
       setLoadingTenant(true);
       setLoadError(null);
       try {
-        const tenant = await tenantsService.findBySlug(slug);
-        if (!tenant) throw new Error('not found');
-        if (cancelled) return;
+        if (isEditMode) {
+          const tenant = await tenantsService.findBySlug(slug);
+          if (!tenant) throw new Error('not found');
+          if (cancelled) return;
 
-        setTenantId(tenant.id);
-        setForm({
-          company_name: tenant.company_name ?? '',
-          slug: tenant.slug ?? '',
-          owner_name: tenant.owner_name ?? '',
-          owner_email: tenant.owner_email ?? '',
-          owner_phone: tenant.owner_phone ?? '',
-        });
-        setModules((tenant.modules ?? []).filter((m) => m.enabled).map((m) => m.module_key));
-        setTier(tenant.tier ?? 'trial');
-        setPlan(tenant.plan ?? 'basic');
+          setTenantId(tenant.id);
+          setForm({
+            company_name: tenant.company_name ?? '',
+            slug: tenant.slug ?? '',
+            owner_name: tenant.owner_name ?? '',
+            owner_email: tenant.owner_email ?? '',
+            owner_phone: tenant.owner_phone ?? '',
+            primary_color: tenant.primary_color ?? '#f5c518',
+            secondary_color: tenant.secondary_color ?? '#171717',
+          });
+          setModules((tenant.modules ?? []).filter((m) => m.enabled).map((m) => m.module_key));
+          setTier(tenant.tier ?? 'trial');
+          setPlan(tenant.plan ?? 'basic');
 
-        const limitsRes = await tenantsService.readTableLimits(tenant.id);
-        if (cancelled) return;
-        setTables(limitsRes.data.tables ?? DEFAULT_TABLES);
+          const [limitsRes, fieldConfigRes] = await Promise.all([
+            tenantsService.readTableLimits(tenant.id),
+            tenantsService.readFieldConfig(tenant.id),
+          ]);
+          if (cancelled) return;
+          setTables(limitsRes.data.tables ?? DEFAULT_TABLES);
+          setFieldRows(fieldConfigRes.data);
+        } else {
+          // No tenant exists yet — pull the master field catalog and let the
+          // user pre-select enabled/required fields; these get saved right
+          // after the tenant is created (see saveCompany).
+          const catalogRes = await fieldCatalogService.read();
+          if (cancelled) return;
+          const catalog = catalogRes.data.results ?? catalogRes.data;
+          setFieldRows(
+            catalog.map((f) => ({
+              field: f.id,
+              entity: f.entity,
+              key: f.field_key,
+              label: f.label,
+              data_type: f.data_type,
+              enabled: false,
+              is_required: false,
+              order: 0,
+            })),
+          );
+        }
       } catch {
-        if (!cancelled) setLoadError('Could not load this company.');
+        if (!cancelled) {
+          setLoadError(isEditMode ? 'Could not load this company.' : 'Could not load the field catalog.');
+        }
       } finally {
         if (!cancelled) setLoadingTenant(false);
       }
@@ -115,6 +159,10 @@ export default function OnboardCompanyPage() {
     );
   };
 
+  const toggleFieldRow = (fieldId, key, value) => {
+    setFieldRows((prev) => prev.map((r) => (r.field === fieldId ? { ...r, [key]: value } : r)));
+  };
+
   const goNext = () => {
     if (formRef.current && !formRef.current.checkValidity()) {
       formRef.current.reportValidity();
@@ -133,6 +181,13 @@ export default function OnboardCompanyPage() {
     setSubmitError(null);
     setSubmitting(true);
 
+    const fieldConfigPayload = fieldRows.map((r) => ({
+      field: r.field,
+      enabled: r.enabled,
+      is_required: r.is_required,
+      order: r.order,
+    }));
+
     try {
       if (isEditMode) {
         await tenantsService.update(tenantId, {
@@ -140,9 +195,14 @@ export default function OnboardCompanyPage() {
           owner_name: form.owner_name,
           owner_email: form.owner_email,
           owner_phone: form.owner_phone,
+          primary_color: form.primary_color,
+          secondary_color: form.secondary_color,
         });
         await tenantsService.updateModules(tenantId, modules);
         await tenantsService.updateTableLimits(tenantId, { tier, plan, tables });
+        if (fieldConfigPayload.length > 0) {
+          await tenantsService.updateFieldConfig(tenantId, fieldConfigPayload);
+        }
         navigate('/__superadmin/dashboard');
       } else {
         const payload = new FormData();
@@ -156,7 +216,10 @@ export default function OnboardCompanyPage() {
         if (tables.some((t) => t.max_records != null)) {
           await tenantsService.updateTableLimits(response.data.id, { tier, plan, tables });
         }
-        navigate(`/__superadmin/companies/${response.data.slug}/fields`);
+        if (fieldConfigPayload.length > 0) {
+          await tenantsService.updateFieldConfig(response.data.id, fieldConfigPayload);
+        }
+        navigate('/__superadmin/dashboard');
       }
     } catch {
       setSubmitError(
@@ -272,6 +335,27 @@ export default function OnboardCompanyPage() {
                     />
                   </div>
                 )}
+
+                <div className="md:col-span-2 lg:col-span-3">
+                  <p className="mb-2 text-sm font-medium text-neutral-700">Login page branding</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ColorField
+                      id="primary_color"
+                      label="Primary color"
+                      value={form.primary_color}
+                      onChange={(value) => setForm((prev) => ({ ...prev, primary_color: value }))}
+                    />
+                    <ColorField
+                      id="secondary_color"
+                      label="Secondary color"
+                      value={form.secondary_color}
+                      onChange={(value) => setForm((prev) => ({ ...prev, secondary_color: value }))}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    Shown on this company's own login page — its sign-in button, logo badge, and accents.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -304,9 +388,12 @@ export default function OnboardCompanyPage() {
                 <div>
                   <Label htmlFor="tier">Tier</Label>
                   <Select id="tier" value={tier} onChange={(e) => setTier(e.target.value)}>
-                    <option value="trial">Trial (5 records/table)</option>
-                    <option value="complete">Complete (configurable)</option>
+                    <option value="trial">Trial (capped at {TRIAL_RECORD_LIMIT} records/table)</option>
+                    <option value="complete">Complete (configurable record limit)</option>
                   </Select>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Only caps record count — Plan (below) decides CRUD access, independent of tier.
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="plan">Plan</Label>
@@ -322,8 +409,8 @@ export default function OnboardCompanyPage() {
               <div className="space-y-4">
                 <div className="rounded-lg border border-butter-200 bg-butter-50 px-4 py-3 text-xs text-butter-800">
                   {tier === 'trial'
-                    ? 'Trial tenants are hard-capped at 5 records per table regardless of these settings.'
-                    : `Next step: configure fields${isEditMode ? '' : ' after creation'}. Set a per-table cap below, or leave "No limit" for unlimited records.`}
+                    ? `Trial tenants are hard-capped at ${TRIAL_RECORD_LIMIT} records per table regardless of these settings.`
+                    : 'Set a per-table cap below, or leave "No limit" for unlimited records.'}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {tables.map((t) => (
@@ -331,7 +418,7 @@ export default function OnboardCompanyPage() {
                       <Label htmlFor={`limit_${t.table_key}`}>{t.label}</Label>
                       {tier === 'trial' ? (
                         <span className="inline-flex w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400">
-                          5 (trial fixed)
+                          {TRIAL_RECORD_LIMIT} (trial fixed)
                         </span>
                       ) : (
                         <Select
@@ -348,6 +435,10 @@ export default function OnboardCompanyPage() {
                   ))}
                 </div>
               </div>
+            )}
+
+            {step === 4 && (
+              <FieldsStep modules={modules} fieldRows={fieldRows} onToggle={toggleFieldRow} isEditMode={isEditMode} />
             )}
           </div>
         </div>
@@ -408,5 +499,97 @@ function Stepper({ steps, current, onStepClick }) {
         );
       })}
     </ol>
+  );
+}
+
+function FieldsStep({ modules, fieldRows, onToggle, isEditMode }) {
+  const enabledModules = AVAILABLE_MODULES.filter((m) => modules.includes(m.key));
+
+  if (fieldRows.length === 0) {
+    return <EmptyPanel text="The field catalog is empty. Add fields from Field Catalog first." />;
+  }
+
+  if (enabledModules.length === 0) {
+    return <EmptyPanel text="Enable Employees or Customers in the Modules step to configure fields." />;
+  }
+
+  return (
+    <div className="space-y-6">
+      {isEditMode && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          Unchecking "Enabled" for a field permanently drops that column and its data. Re-enabling it later adds the column back empty.
+        </div>
+      )}
+      {enabledModules.map((module) => {
+        const entity = MODULE_TO_ENTITY[module.key];
+        return (
+          <FieldGroup
+            key={module.key}
+            title={`${module.label} Fields`}
+            rows={fieldRows.filter((row) => row.entity === entity)}
+            onToggle={onToggle}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function FieldGroup({ title, rows, onToggle }) {
+  const enabledCount = rows.filter((row) => row.enabled).length;
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="font-medium text-neutral-900">{title}</h3>
+        <span className="text-xs text-neutral-500">{enabledCount} of {rows.length} enabled</span>
+      </div>
+      <Card className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-neutral-50 text-neutral-500">
+            <tr>
+              <th className="px-6 py-3.5 font-medium">Field</th>
+              <th className="px-6 py-3.5 font-medium">Type</th>
+              <th className="px-6 py-3.5 font-medium">Enabled</th>
+              <th className="px-6 py-3.5 font-medium">Required</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-100">
+            {rows.map((r) => (
+              <tr key={r.field} className="transition hover:bg-butter-50">
+                <td className="px-6 py-4 text-neutral-900">
+                  {r.label} <span className="text-neutral-400">({r.key})</span>
+                </td>
+                <td className="px-6 py-4 text-neutral-500">{r.data_type}</td>
+                <td className="px-6 py-4">
+                  <Checkbox checked={r.enabled} onChange={(e) => onToggle(r.field, 'enabled', e.target.checked)} />
+                </td>
+                <td className="px-6 py-4">
+                  <Checkbox
+                    checked={r.is_required}
+                    disabled={!r.enabled}
+                    onChange={(e) => onToggle(r.field, 'is_required', e.target.checked)}
+                    className="disabled:opacity-40"
+                  />
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-6 py-8 text-center text-neutral-400">No fields in this category.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+function EmptyPanel({ text }) {
+  return (
+    <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-5 py-8 text-center text-sm text-neutral-500">
+      {text}
+    </div>
   );
 }

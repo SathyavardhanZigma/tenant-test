@@ -24,7 +24,7 @@ class TenantSerializer(serializers.ModelSerializer):
         model = Tenant
         fields = [
             'id', 'company_name', 'slug', 'owner_name', 'owner_email', 'owner_phone',
-            'logo', 'status', 'tier', 'plan', 'modules', 'created_at',
+            'logo', 'primary_color', 'secondary_color', 'status', 'tier', 'plan', 'modules', 'created_at',
         ]
         read_only_fields = ['status', 'created_at']
 
@@ -41,6 +41,8 @@ class TenantOnboardingSerializer(serializers.Serializer):
     module_keys = serializers.ListField(child=serializers.SlugField(), required=False)
     tier = serializers.ChoiceField(choices=Tenant.TIER_CHOICES, required=False, default=Tenant.TIER_TRIAL)
     plan = serializers.ChoiceField(choices=Tenant.PLAN_CHOICES, required=False, default=Tenant.PLAN_BASIC)
+    primary_color = serializers.RegexField(r'^#[0-9A-Fa-f]{6}$', required=False, default='#f5c518')
+    secondary_color = serializers.RegexField(r'^#[0-9A-Fa-f]{6}$', required=False, default='#171717')
 
     def validate_module_keys(self, value):
         valid_keys = {key for key, _ in MODULE_CHOICES}

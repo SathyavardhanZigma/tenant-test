@@ -33,6 +33,18 @@ body {
   scrollbar-color: #e5e5e5 transparent;
 }
 
+/* Per-tenant login CTA — background driven by --tenant-primary (set inline
+ * on the login page's wrapper from that tenant's saved brand color), with a
+ * lighter hover state computed at paint time via color-mix so no JS is
+ * needed to compute a hover shade. Falls back to the fixed butter look when
+ * --tenant-primary isn't set (e.g. the Superadmin's own login page). */
+.tenant-cta {
+  background-color: var(--tenant-primary, #ffda47);
+}
+.tenant-cta:hover {
+  background-color: color-mix(in srgb, var(--tenant-primary, #ffda47) 85%, white);
+}
+
 /* ---- Login page: floating 3D decoration + tilt-card animations ---- */
 
 @keyframes auth-float-a {

@@ -14,8 +14,8 @@ class TenantEntityViewSetMixin:
       used by the frontend to render dynamic forms/tables without hardcoding fields.
     - Audit logging whenever a Superadmin (as opposed to a tenant user) mutates
       a tenant's data directly, per the cross-tenant-edit auditing requirement.
-    - Trial (5 records) / Complete (Superadmin-configurable) record-count
-      enforcement on create — see tenants.limits.effective_limit.
+    - Trial (TRIAL_RECORD_LIMIT records) / Complete (Superadmin-configurable)
+      record-count enforcement on create — see tenants.limits.effective_limit.
 
     Subclasses must set `entity` ('employee' or 'customer') and implement
     `get_queryset`/`get_serializer_class` as usual.
@@ -59,10 +59,17 @@ class TenantEntityViewSetMixin:
         table_key = ENTITY_TO_MODULE_KEY.get(self.entity)
         limit = effective_limit(tenant, table_key)
         if limit is not None and self.get_queryset().count() >= limit:
-            raise ValidationError(
-                f'This company has reached its {limit}-record limit for {table_key}. '
-                f'Ask Superadmin to raise it (Complete tier only).'
-            )
+            if tenant.tier == tenant.TIER_TRIAL:
+                message = (
+                    f'You\'ve reached the {limit}-record limit for {table_key} on the free Trial plan. '
+                    f'Upgrade to Enterprise (Complete tier) to add more records.'
+                )
+            else:
+                message = (
+                    f'This company has reached its {limit}-record limit for {table_key}. '
+                    f'Ask Superadmin to raise this table\'s limit.'
+                )
+            raise ValidationError(message)
 
         prefix = ENTITY_CODE_PREFIX.get(self.entity, self.entity.upper())
         instance = serializer.save(code=generate_entity_code(tenant.slug, prefix))

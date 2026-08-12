@@ -37,7 +37,7 @@ def drop_tenant_database(tenant):
 
 def provision_tenant(*, company_name, slug, owner_name, owner_email, owner_phone='',
                       logo=None, module_keys=None, tier=Tenant.TIER_TRIAL, plan=Tenant.PLAN_BASIC,
-                      db_credentials=None):
+                      primary_color='#f5c518', secondary_color='#171717', db_credentials=None):
     """End-to-end onboarding flow triggered by the configuration form submit."""
     db_credentials = db_credentials or {}
     tenant = Tenant.objects.create(
@@ -49,6 +49,8 @@ def provision_tenant(*, company_name, slug, owner_name, owner_email, owner_phone
         logo=logo,
         tier=tier,
         plan=plan,
+        primary_color=primary_color,
+        secondary_color=secondary_color,
         db_name=db_credentials.get('name', f'tenant_{slug}'),
         db_host=db_credentials.get('host', 'localhost'),
         db_port=db_credentials.get('port', '3306'),

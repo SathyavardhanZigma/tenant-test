@@ -1,4 +1,10 @@
+from django.core.validators import RegexValidator
 from django.db import models
+
+hex_color_validator = RegexValidator(
+    regex=r'^#[0-9A-Fa-f]{6}$',
+    message='Enter a hex color like #f5c518.',
+)
 
 
 class Tenant(models.Model):
@@ -32,6 +38,12 @@ class Tenant(models.Model):
     owner_phone = models.CharField(max_length=32, blank=True)
     logo = models.ImageField(upload_to='tenant_logos/', blank=True, null=True)
 
+    # Per-tenant branding shown on that company's own login page (see
+    # TenantPublicInfoView, resolved before authentication) — never affects
+    # the Superadmin console, which always uses the fixed butter theme.
+    primary_color = models.CharField(max_length=7, default='#f5c518', validators=[hex_color_validator])
+    secondary_color = models.CharField(max_length=7, default='#171717', validators=[hex_color_validator])
+
     db_name = models.CharField(max_length=100, unique=True)
     db_host = models.CharField(max_length=255, default='localhost')
     db_port = models.CharField(max_length=10, default='3306')
@@ -41,9 +53,9 @@ class Tenant(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     tier = models.CharField(
         max_length=20, choices=TIER_CHOICES, default=TIER_TRIAL,
-        help_text='Trial tenants are hard-capped at 5 records per table regardless of '
-                   'TenantTableLimit rows. Complete tenants use whatever limit Superadmin '
-                   'configures per table (see TenantTableLimit), or no limit if unset.',
+        help_text='Trial tenants are hard-capped at TRIAL_RECORD_LIMIT records per table '
+                   'regardless of TenantTableLimit rows. Complete tenants use whatever limit '
+                   'Superadmin configures per table (see TenantTableLimit), or no limit if unset.',
     )
     plan = models.CharField(
         max_length=20, choices=PLAN_CHOICES, default=PLAN_BASIC,
