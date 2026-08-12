@@ -1,6 +1,7 @@
-"""Applies a tenant's TenantFieldConfig selection as real ADD COLUMN
-operations on that tenant's Employee/Customer tables, so e.g. Tata's table has
-8 columns and Tesla's has 14 — driven by data, not per-tenant migration files.
+"""Applies a tenant's TenantFieldConfig selection as real ADD COLUMN / DROP
+COLUMN operations on that tenant's Employee/Customer tables, so e.g. Tata's
+table has 8 columns and Tesla's has 14 — driven by data, not per-tenant
+migration files.
 """
 
 from django.db import connections
@@ -17,26 +18,36 @@ ENTITY_TO_MODEL = {
 
 
 def sync_tenant_schema(tenant):
-    """Bring a tenant's Employee/Customer tables in line with its enabled
-    TenantFieldConfig rows: add columns for newly enabled catalog fields,
-    leave disabled ones in place (soft-hide at the serializer layer rather
-    than dropping data)."""
+    """Bring a tenant's Employee/Customer tables in line with its
+    TenantFieldConfig rows: add a real column for every newly-enabled catalog
+    field, and DROP the column for every field that got disabled — disabling
+    a field is a permanent, irreversible removal of that column and its data,
+    not a soft-hide. Re-enabling it later adds the column back empty."""
     connection = connections[tenant.slug]
-    configs = tenant.field_configs.select_related('field').filter(enabled=True)
+    configs = tenant.field_configs.select_related('field')
 
     with connection.schema_editor() as schema_editor:
         for cfg in configs:
             model = ENTITY_TO_MODEL.get(cfg.field.entity)
             if model is None:
                 continue
-
-            field_name = cfg.field.field_key
-            if _column_exists(connection, model._meta.db_table, field_name):
+            # The whole table is gone when its module is disabled (see
+            # drop_entity_table) — nothing to add/drop columns on until the
+            # module is re-enabled and ensure_entity_table recreates it.
+            if not _table_exists(connection, model._meta.db_table):
                 continue
 
-            field = build_model_field(cfg.field.data_type)
-            field.set_attributes_from_name(field_name)
-            schema_editor.add_field(model, field)
+            field_name = cfg.field.field_key
+            column_exists = _column_exists(connection, model._meta.db_table, field_name)
+
+            if cfg.enabled and not column_exists:
+                field = build_model_field(cfg.field.data_type)
+                field.set_attributes_from_name(field_name)
+                schema_editor.add_field(model, field)
+            elif not cfg.enabled and column_exists:
+                field = build_model_field(cfg.field.data_type)
+                field.set_attributes_from_name(field_name)
+                schema_editor.remove_field(model, field)
 
 
 def _column_exists(connection, table_name, column_name):

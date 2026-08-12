@@ -2,7 +2,7 @@ from django.db import models
 
 from .tenant import Tenant
 
-TRIAL_RECORD_LIMIT = 5
+TRIAL_RECORD_LIMIT = 4
 
 
 class TenantTableLimit(models.Model):

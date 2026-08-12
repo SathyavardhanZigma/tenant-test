@@ -1,0 +1,12 @@
+# Delete every non-__init__ migration file
+find backend/tenants/migrations backend/modules/*/migrations -name "0*.py" -delete
+
+# Regenerate fresh 0001_initial per app from current models
+cd backend && python manage.py makemigrations tenants employees customers
+
+# Drop + recreate the central DB, then apply
+mysql -u root -p -e "DROP DATABASE your_central_db; CREATE DATABASE your_central_db CHARACTER SET utf8mb4;"
+python manage.py migrate
+
+# Each existing tenant DB also needs dropping/recreating and re-provisioning
+# (or just re-onboard each company through the wizard again)

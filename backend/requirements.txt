@@ -7,3 +7,5 @@ python-decouple==3.8
 python-dotenv==1.2.2
 PyMySQL==1.2.0
 Pillow
+celery==5.5.3
+redis==5.2.1

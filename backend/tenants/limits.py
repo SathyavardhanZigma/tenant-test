@@ -1,5 +1,5 @@
-"""Trial (5 records) vs Complete (Superadmin-configurable per table) record
-limits — see tenants.models.Tenant.tier and TenantTableLimit."""
+"""Trial (TRIAL_RECORD_LIMIT records) vs Complete (Superadmin-configurable
+per table) record limits — see tenants.models.Tenant.tier and TenantTableLimit."""
 
 from .models import TRIAL_RECORD_LIMIT
 

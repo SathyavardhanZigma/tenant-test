@@ -5,6 +5,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ..db_registry import register_tenant_database
 from ..capabilities import CAPABILITIES, TIER_LOCKED, registry_tree
 from ..capabilities import resolve as resolve_capabilities
 from ..dynamic_models import invalidate_tenant_models
@@ -12,9 +13,10 @@ from ..entities import ENTITY_TO_MODULE_KEY, MODULE_CHOICES
 from ..models import (
     FieldCatalog, Tenant, TenantCapability, TenantFieldConfig, TenantModule, TenantTableLimit,
 )
-from ..provisioning import drop_tenant_database, provision_tenant
+from ..provisioning import create_tenant_record, drop_tenant_database
 from ..schema_sync import drop_entity_table, ensure_entity_table, sync_tenant_schema
 from ..serializers import FieldCatalogSerializer, TenantOnboardingSerializer, TenantSerializer
+from ..tasks import provision_tenant_task
 from .permissions import IsSuperAdmin
 
 
@@ -27,11 +29,35 @@ class TenantViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['company_name', 'slug', 'owner_name', 'owner_email']
 
+    def get_object(self):
+        # Superadmin routes are exempt from TenantResolverMiddleware, so
+        # unlike tenant-scoped requests, nothing lazily registers this
+        # tenant's DB connection for us. Actions here (field-config, modules,
+        # table-limits, users) touch the tenant's physical database, and
+        # since provisioning now runs in a separate Celery worker process,
+        # this web server process may never have registered it itself —
+        # do it here so it's never process-dependent.
+        tenant = super().get_object()
+        register_tenant_database(tenant)
+        return tenant
+
     def create(self, request, *args, **kwargs):
         onboarding = TenantOnboardingSerializer(data=request.data)
         onboarding.is_valid(raise_exception=True)
-        tenant = provision_tenant(**onboarding.validated_data)
-        return Response(TenantSerializer(tenant).data, status=status.HTTP_201_CREATED)
+        tenant = create_tenant_record(**onboarding.validated_data)
+        provision_tenant_task.delay(tenant.id)
+        return Response(TenantSerializer(tenant).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=['post'], url_path='retry-provisioning')
+    def retry_provisioning(self, request, pk=None):
+        tenant = self.get_object()
+        if tenant.provisioning_status != Tenant.PROVISIONING_FAILED:
+            return Response({'detail': 'Only failed provisioning can be retried.'}, status=status.HTTP_400_BAD_REQUEST)
+        tenant.provisioning_status = Tenant.PROVISIONING_PENDING
+        tenant.provisioning_error = ''
+        tenant.save(update_fields=['provisioning_status', 'provisioning_error'])
+        provision_tenant_task.delay(tenant.id)
+        return Response(TenantSerializer(tenant).data)
 
     def destroy(self, request, *args, **kwargs):
         """Deleting a company drops its entire physical database first —

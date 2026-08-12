@@ -25,6 +25,13 @@ export const MODULE_TO_ENTITY = Object.fromEntries(
   AVAILABLE_MODULES.map((m) => [m.key, m.entity]),
 );
 
+/** Mirrors backend/tenants/models/limits.py TRIAL_RECORD_LIMIT — the hard
+ * per-table record cap for Trial-tier tenants, regardless of TenantTableLimit.
+ * The Onboard wizard's create flow needs this before a tenant (and its id)
+ * exist; every other screen should prefer the value the backend actually
+ * returns (e.g. CompanyLimitsPage's trial_record_limit) over this constant. */
+export const TRIAL_RECORD_LIMIT = 4;
+
 export const PLAN_INFO = {
   basic: { label: 'Basic', hint: 'Login + read-only access to all data.' },
   enterprise: { label: 'Enterprise', hint: 'Login + full CRUD (create, read, update, delete).' },

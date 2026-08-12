@@ -20,6 +20,20 @@ const STATUS_VARIANT = {
   suspended: 'danger',
 };
 
+// A tenant mid-provisioning (Celery background task) or whose provisioning
+// failed shows this instead of its active/suspended status until it's ready.
+const PROVISIONING_VARIANT = {
+  pending: 'warning',
+  running: 'warning',
+  failed: 'danger',
+};
+
+const PROVISIONING_LABEL = {
+  pending: 'Provisioning',
+  running: 'Provisioning',
+  failed: 'Provisioning failed',
+};
+
 const TIER_VARIANT = {
   trial: 'neutral',
   complete: 'accent',
@@ -179,13 +193,19 @@ export default function SuperAdminDashboardPage() {
                   </Field>
 
                   <Field label="Status">
-                    <Badge variant={STATUS_VARIANT[tenant.status] ?? 'neutral'}>
-                      {tenant.status}
-                    </Badge>
+                    {tenant.provisioning_status && tenant.provisioning_status !== 'ready' ? (
+                      <Badge variant={PROVISIONING_VARIANT[tenant.provisioning_status] ?? 'neutral'}>
+                        {PROVISIONING_LABEL[tenant.provisioning_status] ?? tenant.provisioning_status}
+                      </Badge>
+                    ) : (
+                      <Badge variant={STATUS_VARIANT[tenant.status] ?? 'neutral'}>
+                        {tenant.status}
+                      </Badge>
+                    )}
                   </Field>
 
                   <Field label="Actions">
-                    <ActionLinks tenant={tenant} onDelete={setDeletingTenant} />
+                    <ActionLinks tenant={tenant} onDelete={setDeletingTenant} onChanged={loadTenants} />
                   </Field>
                 </div>
               ))}
@@ -265,11 +285,27 @@ function ModuleBadges({ tenant }) {
     </div>);
 }
 
-function ActionLinks({ tenant, onDelete }) {
+function ActionLinks({ tenant, onDelete, onChanged }) {
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await tenantsService.retryProvisioning(tenant.id);
+      onChanged?.();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
     <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-2 text-xs font-medium">
 
-
+      {tenant.provisioning_status === 'failed' && (
+        <button type="button" onClick={handleRetry} disabled={retrying} className="text-amber-700 hover:text-amber-600 disabled:opacity-50">
+          {retrying ? 'Retrying...' : 'Retry provisioning'}
+        </button>
+      )}
       <Link to={`/__superadmin/companies/${tenant.slug}/edit`} className="text-butter-700 hover:text-butter-600">
         Edit
       </Link>

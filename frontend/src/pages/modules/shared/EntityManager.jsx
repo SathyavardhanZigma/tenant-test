@@ -20,6 +20,25 @@ const INPUT_TYPE_BY_DATA_TYPE = {
   email: 'email',
 };
 
+// Matches the wording tenants.mixins.TenantEntityViewSetMixin.perform_create
+// raises for a Trial tenant that hit its record cap, so that specific error
+// gets a distinct "upgrade" treatment instead of a generic red error line.
+function isUpgradeError(message) {
+  return typeof message === 'string' && /upgrade to enterprise/i.test(message);
+}
+
+// DRF's ValidationError(someString) always coerces its detail into a LIST,
+// and the default exception handler responds with that list as the body
+// directly (no {"detail": ...} wrapper) — so response.data here is e.g.
+// ["You've reached the 4-record limit..."], not {detail: "..."}. Handle
+// every shape DRF can send: a bare list, {detail: "..."}, or {detail: [...]}.
+function extractErrorMessage(err) {
+  const data = err.response?.data;
+  if (Array.isArray(data)) return data[0];
+  if (Array.isArray(data?.detail)) return data.detail[0];
+  return data?.detail;
+}
+
 function emptyFormFrom(schema) {
   const values = {};
   schema.filter((field) => !field.readonly).forEach((field) => {
@@ -55,6 +74,10 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
   const [error, setError] = useState(null);
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editError, setEditError] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = (targetPage = page) => {
     setLoading(true);
@@ -98,7 +121,7 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
       setForm(emptyFormFrom(schema));
       load(1);
     } catch (err) {
-      setFormError(err.response?.data?.detail || 'Could not save. Check the fields and try again.');
+      setFormError(extractErrorMessage(err) || 'Could not save. Check the fields and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -110,6 +133,41 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
       load(rows.length === 1 && page > 1 ? page - 1 : page);
     } catch {
       setError('Could not delete that record.');
+    }
+  }, 600);
+
+  const startEdit = (row) => {
+    setEditingId(row.id);
+    setEditError(null);
+    const values = {};
+    schema.filter((field) => !field.readonly).forEach((field) => {
+      values[field.key] = field.data_type === 'boolean' ? Boolean(row[field.key]) : (row[field.key] ?? '');
+    });
+    setEditForm(values);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
+    setEditError(null);
+  };
+
+  const updateEditField = (key, dataType) => (event) => {
+    const value = dataType === 'boolean' ? event.target.checked : event.target.value;
+    setEditForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const saveEdit = useThrottledCallback(async () => {
+    setEditError(null);
+    setSavingEdit(true);
+    try {
+      await service.update(editingId, editForm);
+      cancelEdit();
+      load(page);
+    } catch (err) {
+      setEditError(extractErrorMessage(err) || 'Could not save. Check the fields and try again.');
+    } finally {
+      setSavingEdit(false);
     }
   }, 600);
 
@@ -167,7 +225,19 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
               </div>
             ))}
 
-            {formError && <p role="alert" className="text-sm text-red-600 sm:col-span-2">{formError}</p>}
+            {formError && (
+              isUpgradeError(formError) ? (
+                <div role="alert" className="flex items-start gap-3 rounded-lg border border-butter-300 bg-butter-50 px-4 py-3 sm:col-span-2">
+                  <span className="mt-0.5 text-lg">🔒</span>
+                  <div>
+                    <p className="text-sm font-medium text-butter-900">Record limit reached</p>
+                    <p className="mt-0.5 text-sm text-butter-800">{formError}</p>
+                  </div>
+                </div>
+              ) : (
+                <p role="alert" className="text-sm text-red-600 sm:col-span-2">{formError}</p>
+              )
+            )}
 
             {editableSchema.length > 0 && (
               <Button type="submit" variant="create" size="lg" disabled={submitting} className="sm:col-span-2">
@@ -192,25 +262,76 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
-            {rows.map((row) => (
-              <tr key={row.id} className="transition hover:bg-butter-50">
-                {schema.map((field) => (
-                  <td key={field.key} className="whitespace-nowrap px-6 py-4 text-neutral-700">
-                    {field.data_type === 'boolean' ? (row[field.key] ? 'Yes' : 'No') : row[field.key]}
-                  </td>
-                ))}
-                {!readOnly && (
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => handleDelete(row.id)}
-                      className="text-xs font-medium text-red-600 transition hover:text-red-500"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                )}
+            {rows.map((row) => {
+              const isEditing = row.id === editingId;
+              return (
+                <tr key={row.id} className={`transition ${isEditing ? 'bg-butter-50/60' : 'hover:bg-butter-50'}`}>
+                  {schema.map((field) => (
+                    <td key={field.key} className="whitespace-nowrap px-6 py-4 text-neutral-700">
+                      {isEditing && !field.readonly ? (
+                        field.data_type === 'boolean' ? (
+                          <Checkbox
+                            checked={Boolean(editForm[field.key])}
+                            onChange={updateEditField(field.key, field.data_type)}
+                          />
+                        ) : (
+                          <Input
+                            type={INPUT_TYPE_BY_DATA_TYPE[field.data_type] ?? 'text'}
+                            value={editForm[field.key] ?? ''}
+                            onChange={updateEditField(field.key, field.data_type)}
+                            required={field.required}
+                            className="min-w-32"
+                          />
+                        )
+                      ) : field.data_type === 'boolean' ? (row[field.key] ? 'Yes' : 'No') : row[field.key]}
+                    </td>
+                  ))}
+                  {!readOnly && (
+                    <td className="px-6 py-4 text-right">
+                      {isEditing ? (
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={cancelEdit}
+                            className="text-xs font-medium text-neutral-500 transition hover:text-neutral-700"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={saveEdit}
+                            disabled={savingEdit}
+                            className="text-xs font-medium text-emerald-600 transition hover:text-emerald-500 disabled:opacity-50"
+                          >
+                            {savingEdit ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => startEdit(row)}
+                            className="text-xs font-medium text-sky-600 transition hover:text-sky-500"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(row.id)}
+                            className="text-xs font-medium text-red-600 transition hover:text-red-500"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {editingId && editError && (
+              <tr>
+                <td colSpan={schema.length + (readOnly ? 0 : 1)} className="px-6 py-2">
+                  <p role="alert" className="text-sm text-red-600">{editError}</p>
+                </td>
               </tr>
-            ))}
+            )}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={schema.length + (readOnly ? 0 : 1)} className="px-2">
