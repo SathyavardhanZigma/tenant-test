@@ -237,3 +237,16 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Celery — runs tenant provisioning (DB creation/migrate/schema sync) in the
+# background so onboarding requests return immediately. No result backend is
+# configured: task progress is tracked on Tenant.provisioning_status instead,
+# which is what the frontend polls.
+
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+
+# Set True to run tasks synchronously in-process (no Redis/worker needed) —
+# useful for local dev or tests without broker infrastructure.
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = True

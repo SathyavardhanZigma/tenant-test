@@ -15,10 +15,16 @@ import { fieldCatalogService } from '../../services/fieldCatalogService';
 import { tenantsService } from '../../services/tenantsService';
 import { SUPERADMIN_LINKS } from './links';
 
-const DEFAULT_TABLES = [      
+const DEFAULT_TABLES = [
   { table_key: 'employees', label: 'Employees', max_records: null },
   { table_key: 'customers', label: 'Customers', max_records: null },
 ];
+
+// Tenant provisioning (DB creation/migrate/schema sync) now runs in a Celery
+// background task — poll the tenant record until it's ready or failed rather
+// than assuming it's done as soon as the create request returns.
+const PROVISIONING_POLL_INTERVAL_MS = 2000;
+const PROVISIONING_POLL_MAX_ATTEMPTS = 30; // ~60s
 
 const STEP_META = [
   { title: 'Company', description: 'This creates the tenant identity and login URL.' },
@@ -75,6 +81,13 @@ export default function OnboardCompanyPage() {
   const [fieldRows, setFieldRows] = useState([]);
   const [submitError, setSubmitError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // Onboarding now provisions the tenant's database asynchronously (Celery) —
+  // these track that background phase after tenantsService.create() returns.
+  // provisioningStatus: null | 'pending' | 'running' | 'failed' | 'timeout'
+  // ('ready' is transient — we navigate to the dashboard as soon as it hits).
+  const [provisioningTenantId, setProvisioningTenantId] = useState(null);
+  const [provisioningStatus, setProvisioningStatus] = useState(null);
+  const [provisioningError, setProvisioningError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +186,40 @@ export default function OnboardCompanyPage() {
 
   const goBack = () => navigate(STEPS[Math.max(step - 1, 0)].path);
 
+  const fieldConfigPayload = fieldRows.map((r) => ({
+    field: r.field,
+    enabled: r.enabled,
+    is_required: r.is_required,
+    order: r.order,
+  }));
+
+  // Polls the tenant record until its background provisioning task (Celery)
+  // finishes — see tenants.tasks.provision_tenant_task on the backend.
+  const waitForProvisioning = async (newTenantId) => {
+    for (let attempt = 0; attempt < PROVISIONING_POLL_MAX_ATTEMPTS; attempt += 1) {
+      const res = await tenantsService.readById(newTenantId);
+      const status = res.data.provisioning_status;
+      if (status === 'ready') return { ok: true };
+      if (status === 'failed') return { ok: false, error: res.data.provisioning_error };
+      setProvisioningStatus(status);
+      await new Promise((resolve) => setTimeout(resolve, PROVISIONING_POLL_INTERVAL_MS));
+    }
+    return { ok: false, timeout: true };
+  };
+
+  // Runs once the tenant's database is confirmed ready: applies the limits
+  // and field selections picked earlier in the wizard, then leaves the page.
+  const finishOnboarding = async (newTenantId) => {
+    setProvisioningStatus('ready');
+    if (tables.some((t) => t.max_records != null)) {
+      await tenantsService.updateTableLimits(newTenantId, { tier, plan, tables });
+    }
+    if (fieldConfigPayload.length > 0) {
+      await tenantsService.updateFieldConfig(newTenantId, fieldConfigPayload);
+    }
+    navigate('/__superadmin/dashboard');
+  };
+
   const saveCompany = async () => {
     if (formRef.current && !formRef.current.checkValidity()) {
       formRef.current.reportValidity();
@@ -180,13 +227,6 @@ export default function OnboardCompanyPage() {
     }
     setSubmitError(null);
     setSubmitting(true);
-
-    const fieldConfigPayload = fieldRows.map((r) => ({
-      field: r.field,
-      enabled: r.enabled,
-      is_required: r.is_required,
-      order: r.order,
-    }));
 
     try {
       if (isEditMode) {
@@ -204,29 +244,57 @@ export default function OnboardCompanyPage() {
           await tenantsService.updateFieldConfig(tenantId, fieldConfigPayload);
         }
         navigate('/__superadmin/dashboard');
-      } else {
-        const payload = new FormData();
-        Object.entries(form).forEach(([key, value]) => payload.append(key, value));
-        payload.append('tier', tier);
-        payload.append('plan', plan);
-        modules.forEach((moduleKey) => payload.append('module_keys', moduleKey));
-        if (logo) payload.append('logo', logo);
-
-        const response = await tenantsService.create(payload);
-        if (tables.some((t) => t.max_records != null)) {
-          await tenantsService.updateTableLimits(response.data.id, { tier, plan, tables });
-        }
-        if (fieldConfigPayload.length > 0) {
-          await tenantsService.updateFieldConfig(response.data.id, fieldConfigPayload);
-        }
-        navigate('/__superadmin/dashboard');
+        return;
       }
+
+      const payload = new FormData();
+      Object.entries(form).forEach(([key, value]) => payload.append(key, value));
+      payload.append('tier', tier);
+      payload.append('plan', plan);
+      modules.forEach((moduleKey) => payload.append('module_keys', moduleKey));
+      if (logo) payload.append('logo', logo);
+
+      const response = await tenantsService.create(payload);
+      const newTenantId = response.data.id;
+      setProvisioningTenantId(newTenantId);
+      setProvisioningStatus(response.data.provisioning_status ?? 'pending');
+
+      const result = await waitForProvisioning(newTenantId);
+      if (!result.ok) {
+        setProvisioningStatus(result.timeout ? 'timeout' : 'failed');
+        setProvisioningError(result.error ?? null);
+        setSubmitting(false);
+        return;
+      }
+
+      await finishOnboarding(newTenantId);
     } catch {
       setSubmitError(
         isEditMode
           ? 'Could not save changes. Check the details and try again.'
           : 'Could not create the company. Check the details and try again.',
       );
+      setSubmitting(false);
+    }
+  };
+
+  const retryProvisioning = async () => {
+    if (!provisioningTenantId) return;
+    setSubmitting(true);
+    setProvisioningError(null);
+    try {
+      await tenantsService.retryProvisioning(provisioningTenantId);
+      setProvisioningStatus('pending');
+      const result = await waitForProvisioning(provisioningTenantId);
+      if (!result.ok) {
+        setProvisioningStatus(result.timeout ? 'timeout' : 'failed');
+        setProvisioningError(result.error ?? null);
+        setSubmitting(false);
+        return;
+      }
+      await finishOnboarding(provisioningTenantId);
+    } catch {
+      setSubmitError('Could not retry provisioning. Try again.');
       setSubmitting(false);
     }
   };
@@ -445,8 +513,18 @@ export default function OnboardCompanyPage() {
 
         {submitError && <p role="alert" className="mt-4 text-sm text-red-600">{submitError}</p>}
 
+        {provisioningStatus && provisioningStatus !== 'ready' && (
+          <ProvisioningPanel
+            status={provisioningStatus}
+            error={provisioningError}
+            onRetry={retryProvisioning}
+            retrying={submitting}
+            onGoToDashboard={() => navigate('/__superadmin/dashboard')}
+          />
+        )}
+
         <div className="mt-6 flex items-center justify-between">
-          <Button type="button" variant="secondary" onClick={goBack} disabled={step === 0}>
+          <Button type="button" variant="secondary" onClick={goBack} disabled={step === 0 || submitting}>
             Back
           </Button>
           <Button
@@ -456,7 +534,11 @@ export default function OnboardCompanyPage() {
             onClick={handlePrimaryAction}
             disabled={isLastStep && submitting}
           >
-            {isLastStep ? (submitting ? 'Saving...' : (isEditMode ? 'Save changes' : 'Create & continue')) : 'Next'}
+            {isLastStep
+              ? (submitting
+                ? (provisioningStatus === 'failed' ? 'Retrying...' : 'Saving...')
+                : (isEditMode ? 'Save changes' : 'Create & continue'))
+              : 'Next'}
           </Button>
         </div>
       </form>
@@ -584,6 +666,46 @@ function FieldGroup({ title, rows, onToggle }) {
       </Card>
     </div>
   );
+}
+
+function ProvisioningPanel({ status, error, onRetry, retrying, onGoToDashboard }) {
+  if (status === 'pending' || status === 'running') {
+    return (
+      <div className="mt-4 flex items-center gap-3 rounded-lg border border-butter-200 bg-butter-50 px-4 py-3 text-sm text-butter-800">
+        <svg className="size-4 shrink-0 animate-spin text-butter-600" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        Provisioning your company's database... this can take a moment.
+      </div>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="font-medium">Provisioning failed.</p>
+        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+        <Button type="button" variant="secondary" className="mt-3" onClick={onRetry} disabled={retrying}>
+          {retrying ? 'Retrying...' : 'Retry provisioning'}
+        </Button>
+      </div>
+    );
+  }
+
+  if (status === 'timeout') {
+    return (
+      <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700">
+        <p>Provisioning is taking longer than expected. It's still running in the background — you can check on
+          it from the dashboard.</p>
+        <Button type="button" variant="secondary" className="mt-3" onClick={onGoToDashboard}>
+          Go to dashboard
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function EmptyPanel({ text }) {

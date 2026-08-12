@@ -24,9 +24,10 @@ class TenantSerializer(serializers.ModelSerializer):
         model = Tenant
         fields = [
             'id', 'company_name', 'slug', 'owner_name', 'owner_email', 'owner_phone',
-            'logo', 'primary_color', 'secondary_color', 'status', 'tier', 'plan', 'modules', 'created_at',
+            'logo', 'primary_color', 'secondary_color', 'status', 'provisioning_status',
+            'provisioning_error', 'tier', 'plan', 'modules', 'created_at',
         ]
-        read_only_fields = ['status', 'created_at']
+        read_only_fields = ['status', 'provisioning_status', 'provisioning_error', 'created_at']
 
 
 class TenantOnboardingSerializer(serializers.Serializer):

@@ -50,7 +50,25 @@ class Tenant(models.Model):
     db_user = models.CharField(max_length=100)
     db_password = models.CharField(max_length=255)
 
+    PROVISIONING_PENDING = 'pending'
+    PROVISIONING_RUNNING = 'running'
+    PROVISIONING_READY = 'ready'
+    PROVISIONING_FAILED = 'failed'
+    PROVISIONING_CHOICES = [
+        (PROVISIONING_PENDING, 'Pending'),
+        (PROVISIONING_RUNNING, 'Running'),
+        (PROVISIONING_READY, 'Ready'),
+        (PROVISIONING_FAILED, 'Failed'),
+    ]
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    provisioning_status = models.CharField(
+        max_length=20, choices=PROVISIONING_CHOICES, default=PROVISIONING_READY,
+        help_text='Tracks the async DB-creation/migrate/schema-sync task run by tenants.tasks.'
+                   'provision_tenant_task. Defaults to ready so existing tenants are unaffected; '
+                   'new tenants are created as pending until the background task finishes.',
+    )
+    provisioning_error = models.TextField(blank=True, default='')
     tier = models.CharField(
         max_length=20, choices=TIER_CHOICES, default=TIER_TRIAL,
         help_text='Trial tenants are hard-capped at TRIAL_RECORD_LIMIT records per table '

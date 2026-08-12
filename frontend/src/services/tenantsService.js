@@ -14,6 +14,7 @@ export const tenantsService = {
 
   suspend: (tenantId) => apiClient.post(`/superadmin/tenants/${tenantId}/suspend/`),
   reactivate: (tenantId) => apiClient.post(`/superadmin/tenants/${tenantId}/reactivate/`),
+  retryProvisioning: (tenantId) => apiClient.post(`/superadmin/tenants/${tenantId}/retry-provisioning/`),
 
   readModules: (tenantId) => apiClient.get(`/superadmin/tenants/${tenantId}/modules/`),
   updateModules: (tenantId, moduleKeys) =>
