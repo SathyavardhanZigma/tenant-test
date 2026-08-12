@@ -15,6 +15,8 @@ registry doesn't allow re-registering the same model name twice, and the
 field set only changes when Superadmin edits TenantFieldConfig, which is rare.
 """
 
+import hashlib
+
 from django.db import models
 
 from modules.customers.models import Customer
@@ -25,6 +27,27 @@ from .dynamic_fields import build_model_field
 _STATIC_MODEL = {'employee': Employee, 'customer': Customer}
 _APP_LABEL = {'employee': 'employees', 'customer': 'customers'}
 _model_cache = {}
+
+
+def invalidate_tenant_models(tenant_slug=None):
+    """Drop cached classes for one tenant (or all) after a field-config change.
+
+    The cache key includes the field-key tuple, so an edited tenant naturally
+    misses the cache and rebuilds — this exists to stop the *superseded* entries
+    accumulating for the process lifetime. At POC scale that's housekeeping, not
+    a leak that will bite; it matters because each entry also stays registered
+    in Django's app registry, which is process-global and never shrinks on its
+    own.
+
+    Caveat this does NOT fix: clearing our cache doesn't unregister the class
+    from Django's app registry, so rebuilding an identical field set logs a
+    "was already registered" RuntimeWarning. Harmless (same name = same fields),
+    but it's why this is a POC-scale mitigation rather than a real fix — a
+    production version would either keep the class and mutate nothing, or move
+    off synthesised model classes entirely.
+    """
+    for key in [k for k in _model_cache if tenant_slug is None or k[1] == tenant_slug]:
+        del _model_cache[key]
 
 
 def get_dynamic_model(entity, tenant):
@@ -57,7 +80,12 @@ def get_dynamic_model(entity, tenant):
         'ordering': ['id'],  # avoids UnorderedObjectListWarning under DRF pagination
     })
 
-    class_name = f'{static_model.__name__}_{tenant.slug}_{abs(hash(field_keys))}'
+    # blake2b, not hash(): Python randomises str hashing per process
+    # (PYTHONHASHSEED), so hash() would name the same field-set differently in
+    # each worker — and two workers disagreeing on a model's registry name is
+    # exactly the kind of bug that only shows up under multi-process serving.
+    digest = hashlib.blake2b('\x00'.join(field_keys).encode(), digest_size=6).hexdigest()
+    class_name = f'{static_model.__name__}_{tenant.slug}_{digest}'
     model = type(class_name, (models.Model,), attrs)
     _model_cache[cache_key] = model
     return model

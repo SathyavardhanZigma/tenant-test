@@ -5,6 +5,7 @@ import CustomersSuperAdminView from './pages/modules/customers/SuperAdminView';
 import CustomersTenantView from './pages/modules/customers/TenantView';
 import EmployeesSuperAdminView from './pages/modules/employees/SuperAdminView';
 import EmployeesTenantView from './pages/modules/employees/TenantView';
+import CompanyCapabilitiesPage from './pages/superadmin/CompanyCapabilitiesPage';
 import CompanyFieldConfigPage from './pages/superadmin/CompanyFieldConfigPage';
 import CompanyLimitsPage from './pages/superadmin/CompanyLimitsPage';
 import CompanyUsersPage from './pages/superadmin/CompanyUsersPage';
@@ -94,6 +95,10 @@ export default function App() {
       <Route
         path="/__superadmin/companies/:slug/limits"
         element={<RequireSuperAdmin><CompanyLimitsPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/capabilities"
+        element={<RequireSuperAdmin><CompanyCapabilitiesPage /></RequireSuperAdmin>}
       />
 
       {/* Edit an existing company through the same step wizard as onboarding,

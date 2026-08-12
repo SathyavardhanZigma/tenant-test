@@ -5,8 +5,13 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ..capabilities import CAPABILITIES, TIER_LOCKED, registry_tree
+from ..capabilities import resolve as resolve_capabilities
+from ..dynamic_models import invalidate_tenant_models
 from ..entities import ENTITY_TO_MODULE_KEY, MODULE_CHOICES
-from ..models import FieldCatalog, Tenant, TenantFieldConfig, TenantModule, TenantTableLimit
+from ..models import (
+    FieldCatalog, Tenant, TenantCapability, TenantFieldConfig, TenantModule, TenantTableLimit,
+)
 from ..provisioning import drop_tenant_database, provision_tenant
 from ..schema_sync import drop_entity_table, ensure_entity_table, sync_tenant_schema
 from ..serializers import FieldCatalogSerializer, TenantOnboardingSerializer, TenantSerializer
@@ -104,6 +109,7 @@ class TenantViewSet(viewsets.ModelViewSet):
             )
 
         sync_tenant_schema(tenant)
+        invalidate_tenant_models(tenant.slug)
         return Response({'detail': 'Field configuration updated.'})
 
     @action(detail=True, methods=['get', 'post'])
@@ -153,6 +159,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         if newly_enabled or disabled_entities:
             sync_tenant_schema(tenant)
 
+        invalidate_tenant_models(tenant.slug)
         return Response({'detail': 'Modules updated.'})
 
     @action(detail=True, methods=['get', 'post'], url_path='table-limits')
@@ -203,6 +210,83 @@ class TenantViewSet(viewsets.ModelViewSet):
             )
 
         return Response({'detail': 'Limits updated.'})
+
+    @action(detail=True, methods=['get', 'post'])
+    def capabilities(self, request, pk=None):
+        """GET: the capability registry tree, each node annotated with this
+        tenant's effective enabled/settings and whether that came from a stored
+        override or the product default — which is what lets the config screen
+        show drift from our default product.
+        POST: bulk upsert overrides, e.g.
+        [{"key": "dashboard.stats", "enabled": true,
+          "settings": {"show_limit_usage": false}}, ...]
+
+        LOCKED capabilities are rejected rather than silently ignored, so a
+        caller who tries to override a product invariant finds out.
+        """
+        tenant = self.get_object()
+
+        if request.method == 'GET':
+            resolved = resolve_capabilities(tenant)
+            overridden = set(
+                tenant.capabilities.values_list('capability_key', flat=True)
+            )
+            return Response({
+                'tree': registry_tree(),
+                'effective': {
+                    key: {
+                        'enabled': value['enabled'],
+                        'settings': value['settings'],
+                        'tier': value['tier'],
+                        'is_overridden': key in overridden,
+                    }
+                    for key, value in resolved.items()
+                },
+                'override_count': len(overridden & set(CAPABILITIES)),
+            })
+
+        for row in request.data:
+            key = row.get('key')
+            spec = CAPABILITIES.get(key)
+            if spec is None:
+                return Response(
+                    {'detail': f'Unknown capability: {key}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if spec['tier'] == TIER_LOCKED:
+                return Response(
+                    {'detail': f'{key} is a locked product capability and cannot be overridden.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Keep only keys this capability actually declares; resolve() would
+            # drop unknown ones anyway, but storing them would let the table
+            # accumulate junk that looks meaningful in a drift report.
+            submitted = row.get('settings') or {}
+            settings_json = {
+                name: submitted[name]
+                for name in spec['settings_schema']
+                if name in submitted
+            }
+
+            TenantCapability.objects.update_or_create(
+                tenant=tenant, capability_key=key,
+                defaults={
+                    'enabled': row.get('enabled', spec['default_enabled']),
+                    'settings_json': settings_json,
+                },
+            )
+
+        return Response({'detail': 'Capabilities updated.'})
+
+    @action(detail=True, methods=['post'], url_path='capabilities/reset')
+    def capabilities_reset(self, request, pk=None):
+        """Drop every override for this tenant, returning it to the default
+        product. Having this as one click is what keeps "default product" a
+        real, reachable state rather than an aspiration."""
+        tenant = self.get_object()
+        deleted, _ = tenant.capabilities.all().delete()
+        return Response({'detail': f'Reset to default product ({deleted} override(s) removed).'})
 
     @action(detail=True, methods=['get', 'post'])
     def users(self, request, pk=None):

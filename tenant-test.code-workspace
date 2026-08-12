@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../IWMS/iwms-government-backend"
+		},
+		{
+			"path": "../IWMS/iwms-government-frontend"
+		},
+		{
+			"path": "../IWMS/geo-routing-demo"
+		},
+		{
+			"path": "../IWMS/iwms-government-app"
+		}
+	],
+	"settings": {}
+}

@@ -30,6 +30,14 @@ export const tenantsService = {
   readUsers: (tenantId) => apiClient.get(`/superadmin/tenants/${tenantId}/users/`),
   createUser: (tenantId, payload) => apiClient.post(`/superadmin/tenants/${tenantId}/users/`, payload),
 
+  /** Capability registry + this tenant's effective config. See
+   * backend/tenants/capabilities.py for the tier/cascade rules. */
+  readCapabilities: (tenantId) => apiClient.get(`/superadmin/tenants/${tenantId}/capabilities/`),
+  updateCapabilities: (tenantId, rows) =>
+    apiClient.post(`/superadmin/tenants/${tenantId}/capabilities/`, rows),
+  resetCapabilities: (tenantId) =>
+    apiClient.post(`/superadmin/tenants/${tenantId}/capabilities/reset/`),
+
   /** Convenience: most "company config" pages need the tenant's own id
    * looked up by slug before they can call the rest of this service. */
   findBySlug: async (slug) => {

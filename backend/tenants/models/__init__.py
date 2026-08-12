@@ -4,6 +4,7 @@ code-organization change, not a schema change (see each submodule's
 Meta.app_label = 'tenants', identical to the original single-file models.py)."""
 
 from .audit import TenantAuditLog
+from .capability import TenantCapability
 from .field_catalog import FieldCatalog, TenantFieldConfig
 from .limits import TRIAL_RECORD_LIMIT, TenantTableLimit
 from .superadmin import SuperAdminUser
@@ -16,6 +17,7 @@ __all__ = [
     'TenantTableLimit',
     'FieldCatalog',
     'TenantFieldConfig',
+    'TenantCapability',
     'SuperAdminUser',
     'TenantAuditLog',
 ]

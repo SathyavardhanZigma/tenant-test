@@ -273,6 +273,12 @@ function ActionLinks({ tenant, onDelete }) {
       <Link to={`/__superadmin/companies/${tenant.slug}/edit`} className="text-butter-700 hover:text-butter-600">
         Edit
       </Link>
+      <Link
+        to={`/__superadmin/companies/${tenant.slug}/capabilities`}
+        className="text-indigo-600 hover:text-indigo-500"
+      >
+        Capabilities
+      </Link>
       <button type="button" onClick={() => onDelete(tenant)} className="text-red-600 hover:text-red-500">
         Delete
       </button>

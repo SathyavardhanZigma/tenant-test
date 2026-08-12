@@ -1,220 +1,1777 @@
-Engineering brief: API naming convention, config-driven modules, backend
-restructure, and Superadmin Dashboard/entity-code enhancements
-(Tenant Architecture platform — Django backend + React/Vite/Tailwind frontend)
-================================================================================
+Based on your answers, I would **not** build the tenancy configuration as a huge flat collection of checkboxes.
 
-This replaces the earlier scratch notes in this file with one consolidated,
-actionable brief. It assumes the current state of the repo: a services/
-layer already exists on the frontend (src/services/*.js), the UI redesign
-pass is done, and the backend has database-per-tenant multi-tenancy with
-dynamic Employee/Customer schemas. The items below are the next slice of
-work, grounded in the actual files in this repo.
+You need a **hierarchical capability/configuration system** where Zigma defines the maximum product experience available to a tenant, and the tenant later manages its own staff/user permissions *inside that boundary*.
+
+That gives you a universal model that can handle requests like:
+
+* “Give me the map, but remove Ward filter.”
+* “Show only 4 KPI cards.”
+* “Hide fullscreen on the map.”
+* “Make the map larger.”
+* “Put complaints above attendance.”
+* “Show collection progress for 7 days instead of 31.”
+* “Give us Grievances module but not grievance summary on dashboard.”
+* “We bought Standard now; upgrade us to Advanced.”
+* “Add a new dashboard widget next year.”
+
+without redesigning tenancy every time.
+
+## 1. The overall model I recommend
+
+Think of tenant configuration as **five separate concerns**:
+
+```text
+TENANT CONFIGURATION
+│
+├── 1. PRODUCT ENTITLEMENT
+│      What modules/features has Zigma given this tenant?
+│
+├── 2. UI COMPOSITION
+│      What appears on each page/dashboard?
+│
+├── 3. COMPONENT CONFIGURATION
+│      How does each visible component behave?
+│
+├── 4. DATA SCOPE
+│      What business/geographical data can this tenant access?
+│
+└── 5. TENANT-OWNED USER PERMISSIONS
+       Inside what Zigma enabled, what can each tenant user access?
+```
+
+That separation is the key.
+
+---
+
+# 2. Your Zigma/Tenant responsibility model
+
+Your idea is correct, with one refinement.
+
+### Zigma controls the tenant ceiling
+
+Zigma decides:
+
+```text
+Tenant has Dashboard             YES
+Tenant has Grievances            YES
+Tenant has Reports               YES
+Tenant has Route Optimization    NO
+
+Dashboard has Operations Map     YES
+Dashboard has Critical Alerts    NO
+Dashboard has Attendance         YES
+```
+
+The tenant **cannot enable anything above that ceiling**.
+
+Then the tenant manages its own staff permissions:
+
+```text
+Tenant purchased:
+Dashboard = YES
+Reports = YES
+Grievances = YES
+
+Tenant Admin:
+Dashboard = YES
+Reports = YES
+Grievances = YES
+
+Supervisor:
+Dashboard = YES
+Reports = YES
+Grievances = NO
+
+Driver:
+Dashboard = NO
+Reports = NO
+Grievances = NO
+```
+
+Conceptually:
+
+```text
+Effective User Access
+=
+Zigma Tenant Entitlement
+AND
+Tenant User Permission
+```
+
+So even if a tenant administrator somehow assigns:
+
+```text
+Route Optimization = YES
+```
+
+to a staff member, if Zigma has configured:
+
+```text
+Tenant Route Optimization = NO
+```
+
+the effective result remains:
+
+```text
+NO
+```
+
+This is a very strong universal model.
+
+---
+
+# 3. Don't call everything a "feature"
+
+You need different configuration object types.
+
+I would use:
+
+```text
+MODULE
+PAGE
+SECTION
+WIDGET
+SUBFEATURE
+CONTROL
+BEHAVIOR
+```
+
+Example:
+
+```text
+MODULE
+Dashboard
+
+    PAGE
+    Main Dashboard
+
+        SECTION
+        Operations
+
+            WIDGET
+            Operations Map
+
+                SUBFEATURES
+                Vehicle Layer
+                Bin Layer
+                Household Layer
+                Ward Layer
+
+                CONTROLS
+                Zoom
+                Fullscreen
+                Visibility Toggle
+                Live GPS Counter
+
+                BEHAVIOR
+                Default Layer
+                Auto Refresh
+                Refresh Interval
+                Initial Zoom
+```
+
+That's the hierarchy you were trying to find.
+
+---
+
+# 4. But don't expose every HTML control
+
+This is important.
+
+You said clients might ask:
+
+> “Hide fullscreen.”
+
+Yes — support that.
+
+But don't automatically turn **every button or piece of text** into a tenancy permission.
+
+For example, these are sensible configurable items:
+
+```text
+Operations Map
+    Show Fullscreen
+    Show Zoom
+    Show Live GPS
+```
+
+These are probably **not** tenancy configuration:
+
+```text
+Map border radius
+Marker icon padding
+Font size
+Card border width
+Tooltip animation
+Shadow
+Button hover color
+```
+
+The rule should be:
+
+> **A configuration item exists only if changing it represents a legitimate product/business variation between tenants.**
+
+Not merely because an HTML element exists.
+
+That keeps the system under control.
+
+---
+
+# 5. I would use this hierarchy
+
+The hierarchy should be:
+
+```text
+LEVEL 1
+MODULE
+
+LEVEL 2
+PAGE / SCREEN
+
+LEVEL 3
+SECTION / REGION
+
+LEVEL 4
+WIDGET
+
+LEVEL 5
+SUBFEATURE / CONTROL
+
+LEVEL 6
+BEHAVIOR / SETTINGS
+```
+
+Not every node needs all six levels.
+
+For example:
+
+```text
+Dashboard
+  Main Dashboard
+    KPI Section
+      Vehicles Active
+```
+
+doesn't need another control hierarchy.
+
+But:
+
+```text
+Dashboard
+  Main Dashboard
+    Operations
+      Operations Map
+        Vehicle Layer
+        Bin Layer
+        Fullscreen
+        Zoom
+        Live GPS
+```
+
+does.
+
+---
+
+# 6. Your screenshot converted into the hierarchy
+
+Based on your screenshot, I would configure Dashboard approximately like this.
+
+```text
+DASHBOARD
+│
+├── FILTER BAR
+│   │
+│   ├── Date
+│   ├── State
+│   ├── District
+│   ├── Area Type
+│   ├── Local Body Type
+│   ├── Local Body
+│   ├── Ward
+│   │
+│   ├── Clear Button
+│   ├── Last Updated Indicator
+│   └── Live Indicator
+│
+├── KPI SUMMARY
+│   │
+│   ├── Today's Waste Collected
+│   ├── Trips Completed
+│   ├── Vehicles Active
+│   ├── Wards Completed
+│   ├── Households Covered
+│   └── Bins Collected
+│
+├── WARD COLLECTION LIVE TICKER
+│   │
+│   ├── Enabled
+│   ├── Household Count
+│   ├── Bin Count
+│   ├── Waste Weight
+│   ├── Auto Scroll
+│   └── Refresh Behaviour
+│
+├── VEHICLE STATUS
+│   │
+│   ├── Total Fleet
+│   ├── Active
+│   ├── Idle
+│   ├── Breakdown
+│   ├── Offline GPS
+│   └── Chart
+│
+├── WASTE TYPE BREAKDOWN
+│   │
+│   ├── Enabled
+│   ├── Donut Chart
+│   └── Waste-Type Details
+│
+├── OPERATIONS MAP
+│   │
+│   ├── DATA LAYERS
+│   │   ├── Vehicles
+│   │   ├── Bins
+│   │   ├── Households
+│   │   └── Wards
+│   │
+│   ├── VEHICLE FILTERS
+│   │   ├── All
+│   │   ├── Active
+│   │   └── Inactive
+│   │
+│   ├── CONTROLS
+│   │   ├── Zoom
+│   │   ├── Fullscreen
+│   │   ├── View/Visibility
+│   │   └── Live GPS Counter
+│   │
+│   └── BEHAVIOR
+│       ├── Default Layer
+│       ├── Default Vehicle Filter
+│       ├── Initial Zoom
+│       ├── Auto Fit
+│       ├── Auto Refresh
+│       └── Refresh Interval
+│
+├── CRITICAL ALERTS
+│   │
+│   ├── Enabled
+│   ├── View All
+│   ├── Grievance Alerts
+│   ├── Vehicle Breakdown Alerts
+│   ├── Other Operational Alerts
+│   ├── Maximum Visible Alerts
+│   └── Auto Refresh
+│
+├── ATTENDANCE DETAILS
+│   │
+│   ├── Total Staff
+│   ├── Present
+│   ├── Absent
+│   ├── Leave
+│   └── Present Percentage
+│
+├── COLLECTION PROGRESS
+│   │
+│   ├── Enabled
+│   └── Period
+│       ├── 7 Days
+│       ├── 15 Days
+│       ├── 31 Days
+│       └── Custom
+│
+├── HOUSEHOLD COVERAGE
+│   │
+│   ├── Total
+│   ├── Collected
+│   ├── Pending
+│   ├── Not Collected
+│   └── Not Available
+│
+└── GRIEVANCE SUMMARY
+    │
+    ├── New
+    ├── Open
+    ├── In Progress
+    ├── Resolved
+    ├── Overdue
+    │
+    ├── Missed Collection
+    ├── Irregular Collection
+    └── Resolved Percentage
+```
+
+That's your first real Dashboard Configuration Tree.
+
+---
+
+# 7. How many main branches are under Dashboard?
+
+I would consider these the **major configurable dashboard branches**:
+
+1. Filter Bar
+2. KPI Summary
+3. Ward Collection Live Ticker
+4. Vehicle Status
+5. Waste Type Breakdown
+6. Operations Map
+7. Critical Alerts
+8. Attendance Details
+9. Collection Progress
+10. Household Coverage
+11. Grievance Summary
+
+So:
+
+> **Dashboard currently has 11 major branches.**
+
+The KPI Summary then contains 6 independently configurable KPI widgets.
+
+Operations Map contains several subfeatures and controls.
+
+The Filter Bar contains 7 primary filters plus supporting controls.
+
+This is far better than saying:
+
+> “Dashboard has 50 checkboxes.”
+
+because the hierarchy makes the relationships understandable.
+
+---
+
+# 8. Your tenancy form should therefore be a tree
+
+Instead of this:
+
+```text
+☑ Dashboard
+☑ Map
+☑ Vehicle
+☑ Fullscreen
+☑ Zoom
+☑ Ward
+☑ Complaint
+☑ Attendance
+...
+```
+
+use something like:
+
+```text
+▼ Dashboard                         [Enabled]
+
+   ▼ Filter Bar                     [Enabled]
+
+      ☑ Date
+      ☑ State
+      ☑ District
+      ☑ Area Type
+      ☑ Local Body Type
+      ☑ Local Body
+      ☐ Ward
+
+      ☑ Clear Button
+      ☑ Last Updated
+      ☑ Live Status
 
 
-1. API method naming convention — CRUD verbs, not list/remove
---------------------------------------------------------------
-Every service-layer helper must expose the same five methods, named after
-the operation, not after REST/HTTP jargon:
+   ▼ KPI Summary                    [Enabled]
 
-    create        (POST)
-    read          (GET — collection, i.e. today's "list")
-    readById      (GET — single record by id, i.e. today's implicit "retrieve")
-    update        (PUT/PATCH)
-    delete        (DELETE — today's "remove")
-
-Rename in place, keep the underlying endpoints unchanged:
-
-  - src/services/entityService.js — createEntityService(slug, entity) currently
-    returns { getSchema, list, create, remove }. Rename list -> read,
-    remove -> delete, and add a readById(id) method
-    (apiClient.get(`${base}/${id}/`)). Keep getSchema as-is (it isn't a CRUD verb).
-
-  - src/services/tenantsService.js — rename list -> read and add readById(id)
-    (apiClient.get(`/superadmin/tenants/${id}/`)). create/suspend/reactivate
-    stay; nested resources (getModules/updateModules, getFieldConfig/
-    updateFieldConfig, getTableLimits/updateTableLimits, getUsers/createUser)
-    should follow the same read/create/update/delete naming per sub-resource
-    (e.g. getUsers -> readUsers, createUser -> createUser is already fine
-    since it's already a create verb — just don't reintroduce list/get-only
-    naming for anything new).
-
-  - src/services/fieldCatalogService.js — rename list -> read, add readById.
-
-  - Every call site (DashboardPage.jsx, FieldCatalogPage.jsx, CompanyUsersPage.jsx,
-    CompanyFieldConfigPage.jsx, CompanyLimitsPage.jsx, OnboardCompanyPage.jsx,
-    EntityManager.jsx) must be updated to call the renamed methods — grep the
-    frontend for `.list(` and `.remove(` after the rename to make sure nothing
-    is left calling the old names.
-
-  - Backend mirror: DRF ViewSet actions already map to list/retrieve/create/
-    update/partial_update/destroy under the hood (that's fine — it's DRF's
-    own routing convention and doesn't need to change). The naming convention
-    above is a *frontend service-layer* convention so every module's helper
-    has an identical, predictable shape — it does not require renaming DRF
-    viewset methods.
+      ☑ Today's Waste Collected
+      ☑ Trips Completed
+      ☑ Vehicles Active
+      ☐ Wards Completed
+      ☑ Households Covered
+      ☑ Bins Collected
 
 
-2. Config-driven modules & plans — single source of truth
-------------------------------------------------------------
-Right now the module list is duplicated by hand in several places:
-  - AVAILABLE_MODULES is hardcoded inside OnboardCompanyPage.jsx
-  - MODULE_TO_ENTITY is hardcoded inside CompanyFieldConfigPage.jsx
-  - ENTITY_TO_MODULE_KEY / MODULE_CHOICES already exist as the backend's
-    static source of truth in backend/tenants/entities.py
+   ▼ Operations Map                 [Enabled]
 
-Fix: create ONE frontend config file, src/config/modules.js, that mirrors
-backend/tenants/entities.py exactly:
+      Layers
+          ☑ Vehicles
+          ☑ Bins
+          ☐ Households
+          ☑ Wards
 
-    export const AVAILABLE_MODULES = [
-      { key: 'employees', entity: 'employee', label: 'Employees',
-        description: 'Employee records and employee-specific fields.' },
-      { key: 'customers', entity: 'customer', label: 'Customers',
-        description: 'Customer records and customer-specific fields.' },
-    ];
+      Controls
+          ☑ Zoom
+          ☐ Fullscreen
+          ☑ Live GPS Count
 
-    export const PLAN_INFO = {
-      basic:      { label: 'Basic',      hint: 'Login + read-only access to all data.' },
-      enterprise: { label: 'Enterprise', hint: 'Login + full CRUD (create, read, update, delete).' },
-    };
-
-Then:
-  - OnboardCompanyPage.jsx imports AVAILABLE_MODULES from this file instead
-    of defining its own copy.
-  - CompanyFieldConfigPage.jsx derives MODULE_TO_ENTITY from AVAILABLE_MODULES
-    (`Object.fromEntries(AVAILABLE_MODULES.map(m => [m.key, m.entity]))`)
-    instead of hand-maintaining a second mapping.
-  - Navigation, routes, and each module's entityService instance
-    (createEntityService(slug, module.entity)) should be generated by
-    iterating AVAILABLE_MODULES — adding a third module later means adding
-    one entry to this array and to backend/tenants/entities.py, nothing else.
-  - Plan gating: wherever CRUD buttons are shown (EntityManager's "Add"
-    form/button, the per-row Delete link), hide/disable create/update/delete
-    controls when the current tenant's plan is 'basic' (read + readById only),
-    matching the backend's existing IsTenantUserOrSuperAdmin read-only
-    enforcement for Basic-plan tenants (backend/core_auth/permissions.py) —
-    this should be a UI-level mirror of a rule the backend already enforces,
-    not a new rule.
-  - Respect the selected max-records option (the MAX_RECORDS_OPTIONS dropdown
-    already used in CompanyLimitsPage.jsx / OnboardCompanyPage.jsx) by passing
-    it through as the page size when fetching that table's records, instead
-    of only using it as a stored server-side cap.
+      Behaviour
+          Default Layer: Vehicles
+          Auto Refresh: Yes
+          Refresh: 10 seconds
 
 
-3. Backend restructure — split tenants/{models,serializers,views}.py by schema
---------------------------------------------------------------------------------
-backend/tenants/models.py currently holds 7 unrelated model classes in one
-179-line file (Tenant, TenantModule, TenantTableLimit, FieldCatalog,
-TenantFieldConfig, SuperAdminUser, TenantAuditLog), and
-tenants/serializers.py / tenants/views.py are similarly monolithic. Split
-each into a package, grouped by what the model/serializer/view is actually
-about, mirroring the module system described in section 2:
+   ▼ Critical Alerts                [Disabled]
 
-    backend/tenants/
-    ├── models/
-    │   ├── __init__.py        # re-exports every model so `from tenants.models import Tenant` keeps working
-    │   ├── tenant.py           # Tenant, TenantModule
-    │   ├── limits.py           # TenantTableLimit
-    │   ├── field_catalog.py    # FieldCatalog, TenantFieldConfig
-    │   ├── superadmin.py       # SuperAdminUser
-    │   └── audit.py            # TenantAuditLog
-    ├── serializers/
-    │   ├── __init__.py
-    │   ├── tenant.py
-    │   ├── limits.py
-    │   ├── field_catalog.py
-    │   └── users.py            # the nested /users/ read/create serializer
-    ├── views/
-    │   ├── __init__.py
-    │   ├── tenant.py            # TenantViewSet (create/read/readById/update/delete + modules/field-config/table-limits/users actions)
-    │   └── field_catalog.py     # FieldCatalogViewSet
-    ├── entities.py              # unchanged — already the single source of truth for ENTITY_TO_MODULE_KEY/MODULE_CHOICES
-    ├── urls.py                  # unchanged — registers the split viewsets via the same router
-    └── ...                      # dynamic_models.py, schema_sync.py, context.py, mixins.py, limits.py (app logic) stay as-is
+   ▼ Attendance Details             [Enabled]
 
-Migration mechanics:
-  - Converting models.py -> models/ is a pure code-organization change;
-    Django migrations key off app_label + model name, not file path, so this
-    does NOT require a new migration as long as every model keeps its
-    existing `class Meta: app_label = 'tenants'` (or app default) and
-    fields/table names are untouched.
-  - Run `manage.py makemigrations --check --dry-run` after the split to
-    confirm Django sees zero schema changes — if it proposes anything,
-    something's field/meta was altered by accident during the move.
-  - Update every internal import (`from tenants.models import Tenant, ...`)
-    across the codebase — models/__init__.py re-exporting everything means
-    most call sites need no change at all.
-  - modules/employees/ and modules/customers/ are already split per-schema
-    (separate apps, each with its own small models.py/serializers.py/views.py)
-    — use that as the reference shape for the tenants/ package split above,
-    don't restructure those two apps further.
+   ▼ Collection Progress            [Enabled]
+
+      Period: 31 Days
+```
+
+This is much easier for Zigma employees to configure.
+
+---
+
+# 9. Layout needs to be a separate configuration
+
+Because you want VS Code-like rearrangement, visibility cannot also control position.
+
+You need:
+
+```text
+Widget Enabled
+```
+
+and separately:
+
+```text
+Widget Layout
+```
+
+For example:
+
+```json
+{
+  "widget": "operations_map",
+  "enabled": true,
+
+  "layout": {
+    "x": 3,
+    "y": 2,
+    "width": 6,
+    "height": 4
+  }
+}
+```
+
+Use a grid system.
+
+I would recommend a **12-column dashboard grid**.
+
+Example:
+
+```text
+┌──────────────────────────────────────────────┐
+│              12 COLUMN GRID                  │
+├──────────────┬───────────────────┬───────────┤
+│ Vehicle      │                   │ Critical  │
+│ Status       │ Operations Map    │ Alerts    │
+│ 3 cols       │ 6 cols            │ 3 cols    │
+│              │                   │           │
+├──────────────┴───────────────────┴───────────┤
+│ ...                                          │
+└──────────────────────────────────────────────┘
+```
+
+Store:
+
+```text
+x
+y
+width
+height
+min_width
+min_height
+```
+
+Then your Zigma configuration interface can support:
+
+```text
+drag
+drop
+resize
+hide
+show
+restore default
+```
+
+similar to VS Code panels.
+
+---
+
+# 10. You should also support responsive layouts
+
+Desktop and tablet may need different arrangements.
+
+Therefore eventually:
+
+```text
+layout.desktop
+layout.tablet
+layout.mobile
+```
+
+Example:
+
+```json
+{
+  "desktop": {
+    "x": 3,
+    "y": 2,
+    "w": 6,
+    "h": 5
+  },
+
+  "tablet": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 5
+  }
+}
+```
+
+You don't necessarily need to build this on day one, but design storage so it can be added.
+
+---
+
+# 11. Why I strongly recommend separating Data Scope
+
+This is one of the most important architectural concepts.
+
+Consider this configuration:
+
+```text
+Tenant:
+Erode Municipality
+
+Allowed Data:
+State = Tamil Nadu
+District = Erode
+Local Body = Erode Corporation
+```
+
+Now Zigma configures:
+
+```text
+Operations Map = YES
+Ward filter = NO
+```
+
+If UI configuration and data scope were the same thing, the system could mistakenly interpret:
+
+```text
+Ward filter hidden
+```
+
+as:
+
+```text
+No ward restriction
+```
+
+Those are completely different things.
+
+### Feature configuration answers:
+
+> **What can the tenant use?**
+
+Example:
+
+```text
+Can see map? YES
+Can see Ward filter? NO
+Can see Grievance widget? YES
+```
+
+### Data scope answers:
+
+> **Whose data can the tenant see?**
+
+Example:
+
+```text
+State:
+Tamil Nadu
+
+District:
+Erode
+
+Local Body:
+Erode Corporation
+
+Allowed Wards:
+1–60
+```
+
+They must remain independent.
+
+---
+
+# 12. Example showing why this matters
+
+Suppose a client tells you:
+
+> “Don't show me State and District filters. We're only operating in Erode Corporation, so they're useless.”
+
+You configure:
+
+```text
+State Filter     OFF
+District Filter  OFF
+Local Body       OFF
+Ward Filter      ON
+```
+
+But their data scope remains:
+
+```text
+Tamil Nadu
+  ↓
+Erode
+  ↓
+Erode Corporation
+```
+
+Their APIs are automatically constrained to Erode Corporation.
+
+The hidden filters simply mean:
+
+> “Don't make the user select something that can never change.”
+
+It does **not** mean:
+
+> “Remove the Erode restriction.”
+
+This is why those concepts must be separate.
+
+---
+
+# 13. A more important security example
+
+Imagine:
+
+```text
+Tenant A:
+Erode
+
+Tenant B:
+Coimbatore
+```
+
+Tenant A has:
+
+```text
+District Filter = OFF
+```
+
+If database security depended on that filter, Tenant A could potentially call:
+
+```text
+/api/dashboard?district=Coimbatore
+```
+
+That must never work.
+
+Instead:
+
+```text
+Authenticated tenant
+        ↓
+Tenant Data Scope
+        ↓
+Erode only
+        ↓
+API query constrained
+```
+
+UI filtering is applied **after that**.
+
+So:
+
+```text
+SECURITY SCOPE
+≠
+UI FILTER
+```
+
+This separation is non-negotiable for a proper multi-tenant platform.
+
+---
+
+# 14. Think of it as four filters applied sequentially
+
+For a request:
+
+```text
+User requests vehicle dashboard
+```
+
+backend should effectively evaluate:
+
+```text
+1. TENANT DATABASE
+Which tenant?
+
+        ↓
+
+2. TENANT ENTITLEMENT
+Does Zigma allow Vehicles/Dashboard?
+
+        ↓
+
+3. TENANT DATA SCOPE
+Which geography/business scope?
+
+        ↓
+
+4. USER PERMISSIONS
+Has tenant admin allowed this user?
+```
+
+For your separate-DB architecture:
+
+```text
+Tenant database
+     +
+Tenant feature entitlement
+     +
+Tenant scope
+     +
+User permission
+```
+
+all matter.
+
+---
+
+# 15. Backend access and frontend visibility
+
+You answered that disabled features should be disabled in both places.
+
+Correct.
+
+Suppose Zigma configures:
+
+```text
+Grievance Summary = OFF
+```
+
+Frontend should:
+
+```text
+not render Grievance Summary
+```
+
+But backend should also reject:
+
+```text
+GET /api/dashboard/grievance-summary/
+```
+
+for that tenant.
+
+Something like:
+
+```text
+403 FEATURE_NOT_ENABLED
+```
+
+Otherwise an experienced user could simply call the API manually.
+
+---
+
+# 16. Don't hard-code every option as a database column
+
+This is another major architecture decision.
+
+Do **not** create:
+
+```text
+show_dashboard
+show_map
+show_map_zoom
+show_map_fullscreen
+show_vehicle_status
+show_attendance
+show_grievance
+show_ward_filter
+show_state_filter
+...
+```
+
+because after a few years you'll have hundreds of columns.
+
+And every new client request requires:
+
+```text
+model change
+migration
+serializer change
+frontend change
+```
+
+Instead, create a **Feature Registry**.
+
+---
+
+# 17. Feature Registry
+
+For example:
+
+```text
+FeatureDefinition
+--------------------------------
+
+id
+
+key
+dashboard.operations_map
+
+name
+Operations Map
+
+type
+widget
+
+parent_key
+dashboard
+
+config_schema
+
+default_config
+
+is_active
+
+version
+```
+
+Another:
+
+```text
+key:
+dashboard.operations_map.controls.fullscreen
+
+type:
+control
+
+parent:
+dashboard.operations_map
+```
+
+Another:
+
+```text
+key:
+dashboard.collection_progress
+
+type:
+widget
+```
+
+This is your product catalogue.
+
+---
+
+# 18. Tenant configuration then references the Registry
+
+```text
+TenantFeatureConfig
+--------------------------------
+
+tenant_id
+
+feature_key
+
+enabled
+
+settings_json
+
+layout_json
+
+source
+
+created_at
+updated_at
+```
+
+For example:
+
+```json
+{
+  "tenant_id": "TEN-001",
+  "feature_key": "dashboard.operations_map",
+  "enabled": true,
+
+  "settings": {
+    "default_layer": "vehicles",
+    "show_live_gps": true,
+    "show_fullscreen": false,
+    "show_zoom": true,
+    "auto_refresh": true,
+    "refresh_seconds": 10
+  },
+
+  "layout": {
+    "x": 3,
+    "y": 2,
+    "w": 6,
+    "h": 5
+  }
+}
+```
+
+---
+
+# 19. Why JSON settings are useful
+
+Suppose next year a client asks:
+
+> “Can Operations Map automatically fit all active vehicles?”
+
+You add:
+
+```text
+auto_fit_active_vehicles
+```
+
+to the Operations Map configuration schema.
+
+You don't need:
+
+```text
+ALTER TABLE tenant_feature
+ADD show_auto_fit_active_vehicles ...
+```
+
+for every feature.
+
+The configuration becomes:
+
+```json
+{
+  "show_zoom": true,
+  "show_fullscreen": false,
+  "auto_fit_active_vehicles": true
+}
+```
+
+Much more extensible.
+
+---
+
+# 20. But don't make JSON completely free-form
+
+This is important too.
+
+Don't allow arbitrary:
+
+```json
+{
+  "whateverClientRequested": "anything"
+}
+```
+
+Each component should define its permitted configuration schema.
+
+For example:
+
+```text
+OperationsMap schema
+
+show_zoom               boolean
+show_fullscreen         boolean
+show_live_gps           boolean
+default_layer           enum
+refresh_seconds         integer
+auto_fit                 boolean
+```
+
+This lets both frontend and backend validate configuration.
+
+---
+
+# 21. Packages fit above this nicely
+
+You said you want:
+
+```text
+Basic
+Standard
+Advanced
+Enterprise
+```
+
+Good idea.
+
+Treat packages as **configuration templates**, not hard-coded logic.
+
+Example:
+
+```text
+BASIC
+--------------------------------
+Dashboard                   YES
+Operations Map              YES
+Vehicle Layer               YES
+Bin Layer                   NO
+Grievance Summary           NO
+Reports                     Basic
+Route Optimization          NO
 
 
-4. Superadmin Dashboard (frontend/src/pages/superadmin/DashboardPage.jsx)
------------------------------------------------------------------------------
-  - Full width: change `maxWidth="max-w-6xl"` to a wider/full-bleed layout
-    (e.g. `max-w-7xl` or `max-w-full` with horizontal padding) so the
-    companies table uses the full viewport on desktop instead of being
-    constrained — this table has 7 columns (Company, Login URL, Owner,
-    Modules, Tier/Plan, Status, Actions) and is currently the most
-    column-dense table in the app.
-  - Page size: replace the hardcoded `const PAGE_SIZE = 20` with a
-    configurable dropdown next to the search box, options matching the
-    style of MAX_RECORDS_OPTIONS elsewhere (e.g. 6 / 10 / 20 / 50 / 100 per
-    page, default 6 as requested), stored in component state
-    (`const [pageSize, setPageSize] = useState(6)`), passed through to
-    tenantsService.read({ page, page_size: pageSize, search }), and reset
-    page to 1 whenever pageSize changes (same pattern already used for the
-    debounced search term). This requires the backend TenantViewSet's
-    pagination class to honor a `page_size` query param (DRF's
-    PageNumberPagination supports this via `page_size_query_param` — set
-    `page_size_query_param = 'page_size'` and a sane `max_page_size` on
-    whatever pagination class TenantViewSet uses).
+STANDARD
+--------------------------------
+Dashboard                   YES
+Operations Map              YES
+Vehicle Layer               YES
+Bin Layer                   YES
+Grievance Summary           YES
+Reports                     YES
 
 
-5. Tenant-scoped auto-generated employee/customer codes
------------------------------------------------------------
-Add a human-readable, tenant-scoped, auto-incrementing identifier to both
-Employee and Customer records — shown as its own column in EntityManager's
-table (frontend/src/pages/modules/shared/EntityManager.jsx) for both entities.
+ENTERPRISE
+--------------------------------
+Everything enabled
+Advanced routing
+Custom analytics
+Premium Maps
+```
 
-Format: `{tenant-slug}-{ENTITY-PREFIX}-{sequence}`, e.g.
-  nike-EMP-001, nike-EMP-002, ... for Employees
-  nike-CUST-001, nike-CUST-002, ... for Customers
+---
 
-  - Backend: add a `code` field to both modules/employees/models.py's
-    Employee model and modules/customers/models.py's Customer model
-    (CharField, unique per tenant DB — since each tenant already has its own
-    physical database, uniqueness is automatically per-tenant with no extra
-    scoping needed). Populate it on create by looking up the current max
-    sequence for that table in that tenant's DB and incrementing — do this
-    in the ViewSet's perform_create (modules/employees/views.py,
-    modules/customers/views.py) or in TenantEntityViewSetMixin
-    (tenants/mixins.py) if the logic should be shared across both entities,
-    not client-generated, so two concurrent creates can't collide (wrap the
-    max-lookup + insert in a transaction, or use a per-tenant counter row,
-    to avoid a race between the SELECT MAX and the INSERT under concurrent
-    requests).
-  - Prefix per entity comes from a small constant map (EMP for employee,
-    CUST for customer) — keep this next to ENTITY_TO_MODULE_KEY in
-    backend/tenants/entities.py so it's alongside the other entity metadata.
-  - This new `code` column needs the same ALTER TABLE treatment as any other
-    dynamic column — either add it via schema_sync.py's sync path so it's
-    provisioned consistently for every existing tenant DB, or a one-off
-    migration + backfill script that assigns codes to any pre-existing rows
-    before the column becomes NOT NULL/UNIQUE.
-  - Frontend: EntityManager's schema-driven table already renders one <th>/
-    <td> per field returned from GET /<slug>/<entity>/schema/ — once the
-    backend schema endpoint includes `code` as a field, no separate frontend
-    change is needed beyond making sure it renders first/leftmost and is
-    read-only (never shown in the "Add" form, since it's server-generated,
-    not user-entered).
+# 22. Then allow tenant overrides
 
+For example:
 
-Deliverable
------------
-A services layer with one consistent CRUD-verb interface across every
-module, one shared frontend module/plan config that mirrors the backend's
-entities.py, a tenants/ backend package split by schema (models/
-serializers/views each broken into per-concern files, zero migration diff),
-a wider and page-size-configurable Superadmin companies dashboard, and
-tenant-scoped human-readable codes on Employee/Customer records end to end.
+```text
+Tenant = Salem
+
+Package = Standard
+```
+
+Standard gives:
+
+```text
+Grievance Summary = YES
+```
+
+But Salem says:
+
+> “We don't use complaints.”
+
+Zigma overrides:
+
+```text
+Grievance Module = OFF
+Grievance Summary = OFF
+```
+
+So final configuration becomes:
+
+```text
+Package Defaults
+       +
+Tenant Overrides
+       =
+Effective Tenant Configuration
+```
+
+This is much better than forcing every tenant into identical packages.
+
+---
+
+# 23. Configuration precedence
+
+Eventually I would use:
+
+```text
+SYSTEM DEFAULT
+      ↓
+PACKAGE DEFAULT
+      ↓
+TENANT OVERRIDE
+```
+
+For user permissions:
+
+```text
+SYSTEM
+  ↓
+PACKAGE
+  ↓
+TENANT ENTITLEMENT
+  ↓
+TENANT USER PERMISSION
+```
+
+The lower level can restrict but should never exceed the higher level.
+
+---
+
+# 24. Parent-child disabling
+
+If Zigma turns off:
+
+```text
+Operations Map = OFF
+```
+
+you should not need to manually turn off:
+
+```text
+Vehicles
+Bins
+Households
+Wards
+Zoom
+Fullscreen
+Live GPS
+```
+
+The tree automatically resolves them as unavailable.
+
+Conceptually:
+
+```text
+Operations Map OFF
+      ↓
+all children effectively OFF
+```
+
+But their saved values can remain.
+
+Why?
+
+Because if you later turn Map back on:
+
+```text
+Operations Map ON
+```
+
+the previous settings can be restored.
+
+---
+
+# 25. Same concept for modules
+
+Suppose:
+
+```text
+Grievances Module = OFF
+```
+
+then automatically:
+
+```text
+Dashboard Grievance Summary = unavailable
+Critical Alert Grievance events = unavailable
+Grievance reports = unavailable
+Grievance screen = unavailable
+```
+
+This introduces another useful idea:
+
+> **Dependencies.**
+
+---
+
+# 26. Feature dependencies
+
+For example:
+
+```text
+dashboard.grievance_summary
+
+requires:
+module.grievances
+```
+
+And:
+
+```text
+dashboard.operations_map.layer.bins
+
+requires:
+module.bin_management
+```
+
+Therefore tenancy UI can automatically disable impossible choices.
+
+For example:
+
+```text
+☐ Bin Management
+
+Operations Map
+    Bin Layer      Disabled
+    "Requires Bin Management"
+```
+
+This prevents invalid configurations.
+
+---
+
+# 27. This solves the “millions of possibilities” problem
+
+You do **not** pre-build every possible customer requirement.
+
+Instead you build:
+
+```text
+Reusable components
++
+Configurable properties
++
+Feature hierarchy
++
+Dependencies
++
+Layout engine
++
+Tenant overrides
+```
+
+Then a customer's requirement becomes a configuration combination.
+
+For example:
+
+> “Map, no Ward filter, no fullscreen, vehicles only, large map, refresh every 30 sec.”
+
+That's not a new development.
+
+It's:
+
+```text
+dashboard.filters.ward = OFF
+
+dashboard.operations_map = ON
+
+map.vehicle_layer = ON
+map.bin_layer = OFF
+map.household_layer = OFF
+map.ward_layer = OFF
+
+map.show_fullscreen = OFF
+map.show_zoom = ON
+
+map.refresh_seconds = 30
+
+layout:
+w = 9
+h = 6
+```
+
+Perfect.
+
+---
+
+# 28. When is custom development genuinely required?
+
+Only when the client asks for a capability that does not exist.
+
+For example:
+
+> “Show a heat map of missed collections based on the last 90 days.”
+
+If IWMS doesn't currently have:
+
+```text
+Missed Collection Heatmap
+```
+
+then that's genuinely new functionality.
+
+You develop:
+
+```text
+dashboard.missed_collection_heatmap
+```
+
+once.
+
+After that, future tenants can configure it.
+
+This is the fundamental SaaS pattern:
+
+```text
+First requirement
+→ product enhancement
+
+Future customers
+→ configuration
+```
+
+not:
+
+```text
+Customer A
+→ custom fork
+
+Customer B
+→ another custom fork
+
+Customer C
+→ another custom fork
+```
+
+---
+
+# 29. I recommend one more classification
+
+Every configurable item should be classified into one of four categories:
+
+```text
+ENTITLEMENT
+VISIBILITY
+BEHAVIOR
+LAYOUT
+```
+
+For example:
+
+### Operations Map
+
+```text
+Entitlement
+Can this tenant use Operations Map?
+
+Visibility
+Show Live GPS counter?
+
+Behavior
+Refresh every 10 seconds?
+
+Layout
+6 columns × 5 rows
+```
+
+And:
+
+```text
+DATA SCOPE
+```
+
+remains separate.
+
+This makes your configuration UI much more understandable.
+
+---
+
+# 30. What your Zigma configuration screen could eventually look like
+
+```text
+Tenant: Erode Municipality
+Package: Standard
+
+-------------------------------------------------
+
+PRODUCT FEATURES
+
+▼ Dashboard                         ON
+
+   ▼ Main Dashboard
+
+       ▼ Filters                    ON
+
+          Date                      ON
+          State                     OFF
+          District                  OFF
+          Area Type                 ON
+          Local Body Type           OFF
+          Local Body                OFF
+          Ward                      ON
+
+       ▼ KPI Summary                ON
+
+          Waste Collected           ON
+          Trips Completed           ON
+          Vehicles Active           ON
+          Wards Completed           ON
+          Households Covered        OFF
+          Bins Collected            ON
+
+       ▼ Operations Map             ON
+
+          Layers
+              Vehicles              ON
+              Bins                  ON
+              Households            OFF
+              Wards                 ON
+
+          Controls
+              Zoom                  ON
+              Fullscreen            OFF
+              Live GPS              ON
+
+          Behaviour
+              Default Layer         Vehicles
+              Auto Refresh          ON
+              Refresh               15 seconds
+
+       ▼ Vehicle Status             ON
+
+       ▼ Waste Breakdown            ON
+
+       ▼ Critical Alerts            OFF
+
+       ▼ Attendance                 ON
+
+       ▼ Collection Progress        ON
+              Period                31 days
+
+       ▼ Household Coverage         OFF
+
+       ▼ Grievance Summary          ON
+```
+
+Then another tab:
+
+```text
+DASHBOARD LAYOUT
+```
+
+where Zigma drags and resizes the widgets visually.
+
+And another:
+
+```text
+DATA SCOPE
+```
+
+where geography and organizational restrictions are configured.
+
+---
+
+# 31. I would use separate tabs in Tenancy Configuration
+
+Not one monster screen.
+
+Something like:
+
+```text
+Tenant Configuration
+
+1. General
+2. Subscription / Package
+3. Modules
+4. Screens & Features
+5. Dashboard
+6. Dashboard Layout
+7. Data Scope
+8. Integrations
+9. Branding
+10. Limits / Quotas
+11. Tenant Admin
+12. Review & Activate
+```
+
+Dashboard itself can then have:
+
+```text
+Feature Configuration
+Layout
+Preview
+```
+
+---
+
+# 32. Add a live Preview
+
+Since Zigma is doing the configuration, this would be extremely useful.
+
+Left side:
+
+```text
+Feature tree
+```
+
+Right side:
+
+```text
+LIVE TENANT PREVIEW
+```
+
+When you toggle:
+
+```text
+Ward Filter OFF
+```
+
+the Ward dropdown disappears immediately from preview.
+
+Toggle:
+
+```text
+Fullscreen OFF
+```
+
+fullscreen disappears.
+
+Drag map larger:
+
+preview updates.
+
+This reduces configuration mistakes dramatically.
+
+---
+
+# 33. Add "Preview As Tenant"
+
+Even better:
+
+```text
+Preview as Tenant
+```
+
+shows exactly what that client will receive.
+
+Later you could also have:
+
+```text
+Preview as Desktop
+Preview as Tablet
+```
+
+This gives your Zigma deployment team confidence before activation.
+
+---
+
+# 34. Don't delete settings when hiding something
+
+If a client temporarily says:
+
+```text
+Operations Map OFF
+```
+
+don't remove its configuration.
+
+Store:
+
+```text
+enabled = false
+
+settings remain
+layout remains
+```
+
+Then later if they upgrade:
+
+```text
+enabled = true
+```
+
+everything comes back exactly as configured.
+
+---
+
+# 35. Version your configurations
+
+Because your product will change.
+
+Example:
+
+```text
+Dashboard Schema Version 1
+
+later
+
+Dashboard Schema Version 2
+```
+
+A tenant configuration should know:
+
+```text
+config_version
+```
+
+This helps when introducing new widgets/settings later.
+
+For a newly introduced feature you can decide:
+
+```text
+Existing tenants:
+default OFF
+
+New Enterprise tenants:
+default ON
+```
+
+without breaking deployed clients.
+
+---
+
+# 36. Final architecture I recommend
+
+Your tenant customization engine should ultimately look like:
+
+```text
+                   IWMS PRODUCT REGISTRY
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+      Modules            Screens           Widgets
+                                             │
+                                             ▼
+                                  Controls / Behaviors
+                           │
+                           ▼
+                    Package Templates
+                           │
+                           ▼
+                    Tenant Overrides
+                           │
+           ┌───────────────┼────────────────┐
+           │               │                │
+           ▼               ▼                ▼
+      Entitlements       Layout         Behaviour
+                           │
+                           ▼
+                    Resolved Tenant UI
+                           │
+                           ▼
+                    Tenant User System
+                           │
+                           ▼
+                 User-specific permissions
+```
+
+With **Data Scope alongside this**, not inside it:
+
+```text
+Tenant
+│
+├── Product Configuration
+│
+└── Data Scope
+```
+
+---
+
+## The decision I would lock in
+
+For your question #12, I would choose **a hierarchical version of B + selective C**.
+
+Meaning:
+
+> Configure **major widgets + meaningful business subfeatures + genuinely useful UI controls**.
+
+Not only major widgets, because your clients may legitimately want to hide layers, filters, fullscreen, GPS counts, etc.
+
+But not every UI element either, because that becomes unmaintainable.
+
+So your hierarchy becomes:
+
+```text
+MODULE
+  ↓
+PAGE
+  ↓
+SECTION
+  ↓
+WIDGET
+  ↓
+SUBFEATURE / CONFIGURABLE CONTROL
+  ↓
+BEHAVIOR SETTINGS
+```
+
+And **layout is separate**, while **data scope is completely separate**.
+
+That gives you the flexibility you're looking for without creating millions of hard-coded tenant combinations.
