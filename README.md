@@ -82,7 +82,19 @@ without a separate worker process, set `CELERY_TASK_ALWAYS_EAGER=True` in
 - `tenants/db_registry.py` — injects new tenant DB connections at runtime.
 - `tenants/provisioning.py` + `tenants/tasks.py` — end-to-end onboarding
   (create DB, migrate, sync fields), the DB-mutating half running as a
-  Celery task so the onboarding request returns immediately.
+  Celery task so the onboarding request returns immediately. Each tenant
+  gets its own generated MySQL username/password
+  (`generate_tenant_db_credentials`), scoped by `GRANT` to only that
+  tenant's own database — not the central admin credentials from `.env`.
+  The central `DB_USER` (`root` locally) needs `CREATE`, `CREATE USER`, and
+  `GRANT OPTION` privileges for this to work. `Tenant.db_password` is
+  encrypted at rest (`tenants/crypto.py`, `FIELD_ENCRYPTION_KEY` in `.env`)
+  — reversible, not hashed, since the app must recover the real password to
+  authenticate. A tenant's own account is **DML-only** (`SELECT`/`INSERT`/
+  `UPDATE`/`DELETE`) at rest, so manual access via phpMyAdmin/DBeaver/`mysql`
+  can never `CREATE`/`ALTER`/`DROP` a table — only server-initiated,
+  superadmin-gated code (initial provisioning, module/field toggles) briefly
+  elevates it via `tenant_ddl_privileges()`, then always downgrades it back.
 - `tenants/schema_sync.py` — applies a tenant's field selection as real
   `ADD COLUMN`/`DROP COLUMN`s on its `Employee`/`Customer` tables (e.g. Tata
   gets 8 columns, Tesla gets 14).
@@ -121,9 +133,41 @@ Superadmin and a company's own login can be active in the same browser at
 once — sessions are namespaced separately (see "Session model" in
 [frontend/ARCHITECTURE.md](frontend/ARCHITECTURE.md)).
 
+## Giving a vendor/contractor access to one tenant's database
+
+Never hand over a tenant's own `db_user`/`db_password` — that's the exact
+credential the live app depends on for that tenant; if a vendor changes its
+password or breaks something, that tenant's app connection breaks too.
+Instead, create a separate, revocable account scoped to just that tenant's
+database:
+
+```bash
+cd backend
+.venv/bin/python3 manage.py create_vendor_access <slug>              # read-only (SELECT)
+.venv/bin/python3 manage.py create_vendor_access <slug> --readwrite   # + INSERT/UPDATE/DELETE
+```
+
+The generated username/password is printed once (never stored) — copy it
+immediately and send it to the vendor along with your phpMyAdmin/DBeaver URL.
+When the engagement ends:
+
+```bash
+.venv/bin/python3 manage.py revoke_vendor_access <slug>
+```
+
+Note: a URL like `http://192.168.x.x/phpmyadmin/...` is only reachable from
+the same LAN — a genuinely remote vendor needs port-forwarding, a VPN, or a
+tunnel first.
+
 ## Not yet wired up (next steps)
 
 - Tenant suspend/reactivate already exist as API endpoints
   (`POST /api/superadmin/tenants/<id>/suspend/` / `.../reactivate/`) and as
   `tenantsService.suspend`/`.reactivate` on the frontend, but no button calls
   them yet from the Companies dashboard.
+
+
+mysql -u root -p'admin@123' -e "SELECT slug, db_name, db_host, db_port, db_user, db_password FROM tenants_tenant WHERE slug='test';" tenant_platform_central
+
+
+ mysql -u tenant_test -p'a_fMnktvahlp2dvqfcORiTblc6WiZa9h' -h localhost tenant_test -e "SHOW TABLES;"
