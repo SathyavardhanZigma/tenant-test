@@ -13,7 +13,7 @@ import Spinner from '../../components/ui/Spinner';
 import { fieldCatalogService } from '../../services/fieldCatalogService';
 import { SUPERADMIN_LINKS } from './links';
 
-const DATA_TYPES = ['string', 'text', 'integer', 'date', 'boolean', 'enum', 'email'];
+const DATA_TYPES = ['string', 'text', 'integer', 'date', 'boolean', 'enum', 'role', 'email'];
 const CATALOG_PAGE_SIZE = 8;
 
 const ENTITIES = [
@@ -28,6 +28,7 @@ const TYPE_STYLES = {
   date: 'bg-violet-50 text-violet-700',
   boolean: 'bg-emerald-50 text-emerald-700',
   enum: 'bg-amber-50 text-amber-700',
+  role: 'bg-fuchsia-50 text-fuchsia-700',
   email: 'bg-rose-50 text-rose-700',
 };
 
@@ -36,7 +37,7 @@ const TYPE_STYLES = {
  * tenants; each tenant then picks a subset via its own field-config page). */
 export default function FieldCatalogPage() {
   const [fields, setFields] = useState([]);
-  const [form, setForm] = useState({ entity: 'employee', field_key: '', label: '', data_type: 'string' });
+  const [form, setForm] = useState({ entity: 'employee', field_key: '', label: '', data_type: 'string', options: '' });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -58,8 +59,8 @@ export default function FieldCatalogPage() {
     event.preventDefault();
     setError(null);
     try {
-      await fieldCatalogService.create(form);
-      setForm({ entity: form.entity, field_key: '', label: '', data_type: 'string' });
+      await fieldCatalogService.create({ ...form, options: parseOptions(form.options) });
+      setForm({ entity: form.entity, field_key: '', label: '', data_type: 'string', options: '' });
       load();
     } catch {
       setError('Could not add field — check the key is unique for this entity.');
@@ -135,6 +136,18 @@ export default function FieldCatalogPage() {
               <Label htmlFor="label">Label (shown to users)</Label>
               <Input id="label" value={form.label} onChange={updateField('label')} required placeholder="e.g. PAN Number" />
             </div>
+            {form.data_type === 'enum' && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <Label htmlFor="options">Options (comma-separated — shown as a dropdown on the form)</Label>
+                <Input
+                  id="options"
+                  value={form.options}
+                  onChange={updateField('options')}
+                  required
+                  placeholder="e.g. Manager, Team Lead, Developer, HR, Admin"
+                />
+              </div>
+            )}
           </div>
           {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
           <div className="mt-5 flex justify-end">
@@ -173,17 +186,40 @@ export default function FieldCatalogPage() {
         {loading ? (
           <div className="p-6"><Spinner /></div>
         ) : (
-          <CatalogTable key={activeEntity} fields={activeFields} />
+          <CatalogTable key={activeEntity} fields={activeFields} onChanged={load} />
         )}
       </section>
     </PageShell>
   );
 }
 
-function CatalogTable({ fields }) {
+function parseOptions(raw) {
+  return (raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function CatalogTable({ fields, onChanged }) {
   const [page, setPage] = useState(1);
+  const [editingId, setEditingId] = useState(null);
+  const [optionsDraft, setOptionsDraft] = useState('');
+  const [saving, setSaving] = useState(false);
   const start = (page - 1) * CATALOG_PAGE_SIZE;
   const pageFields = fields.slice(start, start + CATALOG_PAGE_SIZE);
+
+  const startEditOptions = (f) => {
+    setEditingId(f.id);
+    setOptionsDraft((f.options || []).join(', '));
+  };
+
+  const saveOptions = async (f) => {
+    setSaving(true);
+    try {
+      await fieldCatalogService.update(f.id, { options: parseOptions(optionsDraft) });
+      setEditingId(null);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="wizard-step-enter overflow-hidden">
@@ -193,6 +229,7 @@ function CatalogTable({ fields }) {
             <th className="px-6 py-3.5 font-medium">Key</th>
             <th className="px-6 py-3.5 font-medium">Label</th>
             <th className="px-6 py-3.5 font-medium">Type</th>
+            <th className="px-6 py-3.5 font-medium">Options</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100">
@@ -207,11 +244,50 @@ function CatalogTable({ fields }) {
                   {f.data_type}
                 </span>
               </td>
+              <td className="px-6 py-4">
+                {f.data_type === 'role' ? (
+                  <span className="text-neutral-400">Managed per-company via each company's Roles page</span>
+                ) : f.data_type !== 'enum' ? (
+                  <span className="text-neutral-300">—</span>
+                ) : editingId === f.id ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={optionsDraft}
+                      onChange={(e) => setOptionsDraft(e.target.value)}
+                      placeholder="Manager, Team Lead, ..."
+                      className="min-w-56"
+                    />
+                    <button
+                      onClick={() => saveOptions(f)}
+                      disabled={saving}
+                      className="text-xs font-medium text-emerald-600 transition hover:text-emerald-500 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-xs font-medium text-neutral-500 transition hover:text-neutral-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-neutral-600">{(f.options || []).join(', ') || '(none set)'}</span>
+                    <button
+                      onClick={() => startEditOptions(f)}
+                      className="text-xs font-medium text-sky-600 transition hover:text-sky-500"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
           {fields.length === 0 && (
             <tr>
-              <td colSpan={3}>
+              <td colSpan={4}>
                 <EmptyState icon="🗂️" title="No fields yet" hint="Add one above to get started." />
               </td>
             </tr>

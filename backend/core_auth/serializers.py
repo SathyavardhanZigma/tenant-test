@@ -3,6 +3,14 @@ from rest_framework import serializers
 
 from tenants.models import SuperAdminUser
 
+from .models import Role
+
+
+class RoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ['id', 'name']
+
 
 class SuperAdminLoginSerializer(serializers.Serializer):
     username = serializers.CharField()

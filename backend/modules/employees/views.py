@@ -23,4 +23,4 @@ class EmployeeViewSet(TenantEntityViewSetMixin, viewsets.ModelViewSet):
         return model.objects.using(self.request.tenant.slug).all()
 
     def get_serializer_class(self):
-        return build_dynamic_employee_serializer(self.request.tenant)
+        return build_dynamic_employee_serializer(self.request.tenant, request=self.request)

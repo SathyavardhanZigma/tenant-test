@@ -25,9 +25,29 @@ class TenantEntityViewSetMixin:
 
     @action(detail=False, methods=['get'])
     def schema(self, request, **kwargs):
+        from core_auth.field_filter import visible_field_keys
+        from core_auth.models import Role
+
         configs = request.tenant.field_configs.select_related('field').filter(
             enabled=True, field__entity=self.entity,
         ).order_by('order')
+
+        # Mirrors the field-level filtering the dynamic CRUD serializer
+        # applies (see modules/employees/serializers.py) — without this, a
+        # staff user with a narrower StaffFieldGrant selection would still see
+        # a form field/table column here for data the list/create/update
+        # endpoints actually hide from them.
+        module_key = ENTITY_TO_MODULE_KEY.get(self.entity)
+        viewable, editable = visible_field_keys(request, module_key, {cfg.field.field_key for cfg in configs})
+
+        # 'role'-type fields don't store their own choices on FieldCatalog —
+        # they pull the live list from this tenant's own Role table instead
+        # (see core_auth.models.Role), so adding a new role never needs a
+        # code change or Superadmin's involvement.
+        role_names = None
+        if any(cfg.field.data_type == 'role' for cfg in configs):
+            role_names = list(Role.objects.values_list('name', flat=True))
+
         # 'code' is a fixed, server-generated column (not part of the
         # configurable FieldCatalog) — always shown first, never editable.
         code_column = {
@@ -40,10 +60,11 @@ class TenantEntityViewSetMixin:
                 'label': cfg.field.label,
                 'data_type': cfg.field.data_type,
                 'required': cfg.is_required,
-                'options': cfg.field.options,
-                'readonly': False,
+                'options': role_names if cfg.field.data_type == 'role' else cfg.field.options,
+                'readonly': cfg.field.field_key not in editable,
             }
             for cfg in configs
+            if cfg.field.field_key in viewable
         ])
 
     def _maybe_audit(self, action_name, pk):

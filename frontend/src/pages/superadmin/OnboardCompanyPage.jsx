@@ -630,7 +630,9 @@ function Stepper({ steps, current, onStepClick }) {
 }
 
 function FieldsStep({ modules, fieldRows, onToggle, isEditMode }) {
-  const enabledModules = AVAILABLE_MODULES.filter((m) => modules.includes(m.key));
+  // Only FieldCatalog-dynamic-schema modules (Employees, Customers) have
+  // fields to configure here — Roles has no `entity` (see config/modules.js).
+  const enabledModules = AVAILABLE_MODULES.filter((m) => modules.includes(m.key) && m.entity);
 
   if (fieldRows.length === 0) {
     return <EmptyPanel text="The field catalog is empty. Add fields from Field Catalog first." />;

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { clearTenantSession } from '../../../api/auth';
 import AppHeader from '../../../components/ui/AppHeader';
 import { useTenant } from '../../../context/TenantContext';
+import { buildTenantLinks } from '../../../utils/tenantLinks';
 import EntityManager from '../shared/EntityManager';
 
 export default function CustomersTenantView() {
@@ -30,11 +31,4 @@ export default function CustomersTenantView() {
       readOnly={tenant?.plan === 'basic'}
     />
   );
-}
-
-function buildTenantLinks(slug, tenant) {
-  const links = [{ label: 'Dashboard', to: `/${slug}/dashboard` }];
-  if (tenant?.features?.includes('employees')) links.push({ label: 'Employees', to: `/${slug}/employees` });
-  if (tenant?.features?.includes('customers')) links.push({ label: 'Customers', to: `/${slug}/customers` });
-  return links;
 }

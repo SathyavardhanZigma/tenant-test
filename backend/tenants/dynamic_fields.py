@@ -17,7 +17,11 @@ def build_model_field(data_type, *, nullable=True):
         return models.DateField(null=nullable, blank=nullable)
     if data_type == 'boolean':
         return models.BooleanField(null=nullable, blank=True, default=False)
-    if data_type == 'enum':
+    if data_type in ('enum', 'role'):
+        # 'role' stores the chosen Role's name as plain text on the row —
+        # the live choice list comes from the tenant's own core_auth.Role
+        # table (see tenants.mixins.TenantEntityViewSetMixin.schema), but the
+        # column itself doesn't need a real FK for a single-string value.
         return models.CharField(max_length=100, null=nullable, blank=nullable)
     if data_type == 'email':
         return models.EmailField(null=nullable, blank=nullable)

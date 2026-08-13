@@ -131,7 +131,7 @@ DATABASE_ROUTERS = ['tenants.routers.TenantRouter']
 
 # Apps whose models are always tenant-scoped (routed to the active tenant DB
 # rather than 'default'). Extend this as new tenant-scoped module apps are added.
-TENANT_APPS = ['employees', 'customers']
+TENANT_APPS = ['employees', 'customers', 'core_auth']
 
 # Migrated onto BOTH 'default' and every tenant DB alias: Django admin/the
 # central superuser needs auth.User on 'default', and each company's own

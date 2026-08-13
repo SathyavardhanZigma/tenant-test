@@ -83,6 +83,9 @@ export default function CompanyFieldConfigPage() {
   };
 
   const enabledModules = modules.filter((m) => m.enabled);
+  // Only FieldCatalog-dynamic-schema modules (Employees, Customers) have
+  // fields to configure here — Roles has no `entity` (see config/modules.js).
+  const enabledFieldModules = enabledModules.filter((m) => MODULE_TO_ENTITY[m.module_key]);
 
   const header = (
     <AppHeader
@@ -136,11 +139,11 @@ export default function CompanyFieldConfigPage() {
         <SetupSection number="2" title="Field Configuration" description="Field choices are only available for enabled modules.">
           {rows.length === 0 ? (
             <EmptyPanel text="The field catalog is empty. Add fields from Field Catalog first." />
-          ) : enabledModules.length === 0 ? (
+          ) : enabledFieldModules.length === 0 ? (
             <EmptyPanel text="Enable Employees or Customers above to configure fields for that module." />
           ) : (
             <div className="space-y-6">
-              {enabledModules.map((module) => {
+              {enabledFieldModules.map((module) => {
                 const entity = MODULE_TO_ENTITY[module.module_key];
                 return (
                   <FieldGroup

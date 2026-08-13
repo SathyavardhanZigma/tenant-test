@@ -1,10 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { clearTenantSession, getSessionSeed } from '../../api/auth';
+import { clearTenantSession, getSessionSeed, isTenantOwner } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Avatar from '../../components/ui/Avatar';
 import { Card } from '../../components/ui/Card';
 import PageShell from '../../components/ui/PageShell';
 import { useTenant } from '../../context/TenantContext';
+import { buildTenantLinks } from '../../utils/tenantLinks';
 
 const MODULE_CARDS = [
   { key: 'employees', icon: '👥', title: 'Employees', description: 'Manage employee records for your company.' },
@@ -29,6 +30,17 @@ export default function DashboardPage() {
   );
 
   const enabledModules = MODULE_CARDS.filter((m) => hasFeature(tenant, m.key));
+  const ownerCards = [];
+  if (isTenantOwner()) {
+    // Staff Permissions isn't itself a toggleable module — it's always
+    // available to the owner. Roles is (see tenants.entities.MODULE_CHOICES),
+    // so it only shows once Superadmin has enabled it for this company.
+    ownerCards.push({ key: 'staff', icon: '🔑', title: 'Staff Permissions', description: 'Control which modules and fields your staff logins can see and edit.' });
+    if (hasFeature(tenant, 'roles')) {
+      ownerCards.push({ key: 'roles', icon: '🏷️', title: 'Roles', description: 'Manage the Role choices shown on the Employee form.' });
+    }
+  }
+  const cards = [...enabledModules, ...ownerCards];
 
   return (
     <PageShell maxWidth="max-w-5xl" header={header}>
@@ -47,7 +59,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        {enabledModules.map((m) => (
+        {cards.map((m) => (
           <Link key={m.key} to={`/${slug}/${m.key}`}>
             <Card className="group cursor-pointer p-7 transition hover:-translate-y-0.5 hover:border-butter-300 hover:shadow-lg hover:shadow-butter-500/10">
               <span className="flex size-11 items-center justify-center rounded-xl bg-butter-50 text-xl transition group-hover:bg-butter-100">
@@ -61,7 +73,7 @@ export default function DashboardPage() {
             </Card>
           </Link>
         ))}
-        {enabledModules.length === 0 && (
+        {cards.length === 0 && (
           <Card className="p-6 text-sm text-neutral-500">
             No record-management features are enabled for this company yet.
           </Card>
@@ -69,13 +81,6 @@ export default function DashboardPage() {
       </div>
     </PageShell>
   );
-}
-
-function buildTenantLinks(slug, tenant) {
-  const links = [{ label: 'Dashboard', to: `/${slug}/dashboard` }];
-  if (hasFeature(tenant, 'employees')) links.push({ label: 'Employees', to: `/${slug}/employees` });
-  if (hasFeature(tenant, 'customers')) links.push({ label: 'Customers', to: `/${slug}/customers` });
-  return links;
 }
 
 function hasFeature(tenant, featureKey) {
