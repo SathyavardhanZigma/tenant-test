@@ -5,6 +5,8 @@ at runtime, since Django doesn't support editing DATABASES via migrations.
 from django.conf import settings
 from django.db import connections
 
+from .crypto import decrypt_db_password
+
 
 def _connection_config(tenant):
     # Includes every key Django's ConnectionHandler.configure_settings() would
@@ -16,7 +18,7 @@ def _connection_config(tenant):
         'HOST': tenant.db_host,
         'PORT': tenant.db_port,
         'USER': tenant.db_user,
-        'PASSWORD': tenant.db_password,
+        'PASSWORD': decrypt_db_password(tenant.db_password),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },

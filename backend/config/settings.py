@@ -122,6 +122,11 @@ DATABASES = {
     # alias is its company slug, e.g. DATABASES['tata'] = {...}.
 }
 
+# Encrypts Tenant.db_password at rest — see tenants/crypto.py. Reversible
+# (Fernet), unlike a password hash, because the app must recover the real
+# value to authenticate to that tenant's MySQL account.
+FIELD_ENCRYPTION_KEY = os.getenv('FIELD_ENCRYPTION_KEY', '')
+
 DATABASE_ROUTERS = ['tenants.routers.TenantRouter']
 
 # Apps whose models are always tenant-scoped (routed to the active tenant DB

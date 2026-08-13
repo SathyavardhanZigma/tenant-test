@@ -230,8 +230,9 @@ export default function OnboardCompanyPage() {
   // and field selections picked earlier in the wizard, then leaves the page.
   const finishOnboarding = async (newTenantId) => {
     setProvisioningStatus('ready');
-    if (tables.some((t) => t.max_records != null)) {
-      await tenantsService.updateTableLimits(newTenantId, { tier, plan, tables });
+    const selectedTables = tables.filter((t) => modules.includes(t.table_key));
+    if (selectedTables.some((t) => t.max_records != null)) {
+      await tenantsService.updateTableLimits(newTenantId, { tier, plan, tables: selectedTables });
     }
     if (fieldConfigPayload.length > 0) {
       await tenantsService.updateFieldConfig(newTenantId, fieldConfigPayload);
@@ -270,7 +271,9 @@ export default function OnboardCompanyPage() {
           });
         }
         await tenantsService.updateModules(tenantId, modules);
-        await tenantsService.updateTableLimits(tenantId, { tier, plan, tables });
+        await tenantsService.updateTableLimits(tenantId, {
+          tier, plan, tables: tables.filter((t) => modules.includes(t.table_key)),
+        });
         if (fieldConfigPayload.length > 0) {
           await tenantsService.updateFieldConfig(tenantId, fieldConfigPayload);
         }
@@ -523,7 +526,7 @@ export default function OnboardCompanyPage() {
                     : 'Set a per-table cap below, or leave "No limit" for unlimited records.'}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {tables.map((t) => (
+                  {tables.filter((t) => modules.includes(t.table_key)).map((t) => (
                     <div key={t.table_key}>
                       <Label htmlFor={`limit_${t.table_key}`}>{t.label}</Label>
                       {tier === 'trial' ? (

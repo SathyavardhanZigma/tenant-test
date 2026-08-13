@@ -10,7 +10,7 @@ from core_auth.models import StaffProfile
 from ..db_registry import register_tenant_database
 from ..entities import ENTITY_TO_MODULE_KEY, MODULE_CHOICES
 from ..models import FieldCatalog, Tenant, TenantFieldConfig, TenantModule, TenantTableLimit
-from ..provisioning import create_tenant_record, drop_tenant_database
+from ..provisioning import create_tenant_record, drop_tenant_database, tenant_ddl_privileges
 from ..schema_sync import drop_entity_table, ensure_entity_table, sync_tenant_schema
 from ..serializers import FieldCatalogSerializer, TenantOnboardingSerializer, TenantSerializer
 from ..tasks import provision_tenant_task
@@ -131,7 +131,8 @@ class TenantViewSet(viewsets.ModelViewSet):
                 },
             )
 
-        sync_tenant_schema(tenant)
+        with tenant_ddl_privileges(tenant):
+            sync_tenant_schema(tenant)
         return Response({'detail': 'Field configuration updated.'})
 
     @action(detail=True, methods=['get', 'post'])
@@ -172,14 +173,16 @@ class TenantViewSet(viewsets.ModelViewSet):
         # fields are configured for it.
         newly_disabled = previously_enabled - selected_keys
         newly_enabled = selected_keys - previously_enabled
-        for entity, module_key in ENTITY_TO_MODULE_KEY.items():
-            if module_key in newly_disabled:
-                drop_entity_table(tenant, entity)
-            elif module_key in newly_enabled:
-                ensure_entity_table(tenant, entity)
+        if newly_disabled or newly_enabled or disabled_entities:
+            with tenant_ddl_privileges(tenant):
+                for entity, module_key in ENTITY_TO_MODULE_KEY.items():
+                    if module_key in newly_disabled:
+                        drop_entity_table(tenant, entity)
+                    elif module_key in newly_enabled:
+                        ensure_entity_table(tenant, entity)
 
-        if newly_enabled or disabled_entities:
-            sync_tenant_schema(tenant)
+                if newly_enabled or disabled_entities:
+                    sync_tenant_schema(tenant)
 
         return Response({'detail': 'Modules updated.'})
 
