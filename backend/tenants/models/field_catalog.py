@@ -19,6 +19,7 @@ class FieldCatalog(models.Model):
         ('date', 'Date'),
         ('boolean', 'Boolean'),
         ('enum', 'Enum'),
+        ('role', 'Role'),
         ('email', 'Email'),
         ('text', 'Text'),
     ]
@@ -27,7 +28,11 @@ class FieldCatalog(models.Model):
     field_key = models.SlugField(max_length=100)
     label = models.CharField(max_length=255)
     data_type = models.CharField(max_length=20, choices=DATA_TYPE_CHOICES, default='string')
-    options = models.JSONField(blank=True, null=True, help_text='Choices, for enum fields')
+    options = models.JSONField(
+        blank=True, null=True,
+        help_text="Choices, for 'enum' fields. Not used for 'role' fields — "
+                   "those pull live choices from the tenant's own core_auth.Role table instead.",
+    )
     is_required_default = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

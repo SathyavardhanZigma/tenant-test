@@ -278,6 +278,19 @@ function ModuleBadges({ tenant }) {
 
       </Badge>
 
+      <Badge><Link to={`/__superadmin/companies/${tenant.slug}/staff`} className="text-fuchsia-600 hover:text-fuchsia-500" >
+        Staff Permissions
+      </Link>
+
+      </Badge>
+
+      {hasModule(tenant, 'roles') && (
+        <Badge>
+          <Link to={`/__superadmin/companies/${tenant.slug}/roles`} className="text-amber-600 hover:text-amber-500" >
+            Roles
+          </Link>
+        </Badge>
+      )}
 
       {hasModule(tenant, 'employees') && (
         <Badge>

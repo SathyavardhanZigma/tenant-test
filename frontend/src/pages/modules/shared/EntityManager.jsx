@@ -3,7 +3,7 @@ import Button from '../../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/Card';
 import Checkbox from '../../../components/ui/Checkbox';
 import EmptyState from '../../../components/ui/EmptyState';
-import Input, { Label } from '../../../components/ui/Input';
+import Input, { Label, Select } from '../../../components/ui/Input';
 import PageShell from '../../../components/ui/PageShell';
 import Pagination from '../../../components/ui/Pagination';
 import Spinner from '../../../components/ui/Spinner';
@@ -12,13 +12,44 @@ import { createEntityService } from '../../../services/entityService';
 
 const INPUT_TYPE_BY_DATA_TYPE = {
   string: 'text',
-  enum: 'text',
   text: 'text',
   integer: 'number',
   date: 'date',
   boolean: 'checkbox',
   email: 'email',
 };
+
+/** Renders the right control for a field's data_type: a dropdown for 'enum'
+ * (static FieldCatalog.options) and 'role' (live choices from the tenant's
+ * own Role list — see core_auth.models.Role — the backend's schema endpoint
+ * fills `options` with those for a 'role' field), a checkbox for 'boolean',
+ * otherwise a plain typed <Input>. Shared by both the Add form and the
+ * inline Edit row so the two stay consistent. */
+function FieldControl({ field, value, onChange, id, className = '' }) {
+  if (field.data_type === 'enum' || field.data_type === 'role') {
+    return (
+      <Select id={id} value={value ?? ''} onChange={onChange} required={field.required} className={className}>
+        <option value="" disabled={field.required}>Select...</option>
+        {(field.options || []).map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </Select>
+    );
+  }
+  if (field.data_type === 'boolean') {
+    return <Checkbox id={id} checked={Boolean(value)} onChange={onChange} className={className} />;
+  }
+  return (
+    <Input
+      id={id}
+      type={INPUT_TYPE_BY_DATA_TYPE[field.data_type] ?? 'text'}
+      value={value ?? ''}
+      onChange={onChange}
+      required={field.required}
+      className={className}
+    />
+  );
+}
 
 // Matches the wording tenants.mixins.TenantEntityViewSetMixin.perform_create
 // raises for a Trial tenant that hit its record cap, so that specific error
@@ -207,21 +238,12 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
                   {field.label}
                   {field.required && <span className="text-red-500"> *</span>}
                 </Label>
-                {field.data_type === 'boolean' ? (
-                  <Checkbox
-                    id={field.key}
-                    checked={Boolean(form[field.key])}
-                    onChange={updateField(field.key, field.data_type)}
-                  />
-                ) : (
-                  <Input
-                    id={field.key}
-                    type={INPUT_TYPE_BY_DATA_TYPE[field.data_type] ?? 'text'}
-                    value={form[field.key] ?? ''}
-                    onChange={updateField(field.key, field.data_type)}
-                    required={field.required}
-                  />
-                )}
+                <FieldControl
+                  field={field}
+                  id={field.key}
+                  value={form[field.key]}
+                  onChange={updateField(field.key, field.data_type)}
+                />
               </div>
             ))}
 
@@ -269,20 +291,12 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
                   {schema.map((field) => (
                     <td key={field.key} className="whitespace-nowrap px-6 py-4 text-neutral-700">
                       {isEditing && !field.readonly ? (
-                        field.data_type === 'boolean' ? (
-                          <Checkbox
-                            checked={Boolean(editForm[field.key])}
-                            onChange={updateEditField(field.key, field.data_type)}
-                          />
-                        ) : (
-                          <Input
-                            type={INPUT_TYPE_BY_DATA_TYPE[field.data_type] ?? 'text'}
-                            value={editForm[field.key] ?? ''}
-                            onChange={updateEditField(field.key, field.data_type)}
-                            required={field.required}
-                            className="min-w-32"
-                          />
-                        )
+                        <FieldControl
+                          field={field}
+                          value={editForm[field.key]}
+                          onChange={updateEditField(field.key, field.data_type)}
+                          className="min-w-32"
+                        />
                       ) : field.data_type === 'boolean' ? (row[field.key] ? 'Yes' : 'No') : row[field.key]}
                     </td>
                   ))}

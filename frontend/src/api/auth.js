@@ -16,15 +16,21 @@ const DOMAIN_KEYS = {
     refresh: 'tenant_refresh_token',
     seed: 'tenant_session_seed',
     slug: 'tenant_slug',
+    staffRole: 'tenant_staff_role',
   },
 };
 
-export function setSession({ access, refresh, role, tenant, username }) {
+export function setSession({ access, refresh, role, tenant, username, staff_role: staffRole }) {
   const keys = DOMAIN_KEYS[role];
   localStorage.setItem(keys.access, access);
   localStorage.setItem(keys.refresh, refresh);
   if (keys.slug) {
     localStorage.setItem(keys.slug, tenant);
+  }
+  if (keys.staffRole) {
+    // owner/staff — see core_auth.models.StaffProfile. Drives whether the
+    // "Staff Permissions" page/link shows up for this tenant user.
+    localStorage.setItem(keys.staffRole, staffRole || 'owner');
   }
   // Fresh per-login seed for the identicon avatar — same user gets a
   // different look each time they sign back in, per the "refreshed on each
@@ -39,6 +45,9 @@ function clearDomain(role) {
   localStorage.removeItem(keys.seed);
   if (keys.slug) {
     localStorage.removeItem(keys.slug);
+  }
+  if (keys.staffRole) {
+    localStorage.removeItem(keys.staffRole);
   }
 }
 
@@ -59,6 +68,18 @@ export function getAccessToken(role) {
 
 export function getTenantSlug() {
   return localStorage.getItem(DOMAIN_KEYS.tenant_user.slug);
+}
+
+/** 'owner' or 'staff' for the current tenant-user session — see
+ * core_auth.models.StaffProfile. Sessions created before this feature
+ * shipped never stored one; treat that as 'owner' so nobody who could
+ * already do everything suddenly loses the "Staff Permissions" page. */
+export function getStaffRole() {
+  return localStorage.getItem(DOMAIN_KEYS.tenant_user.staffRole) || 'owner';
+}
+
+export function isTenantOwner() {
+  return getStaffRole() === 'owner';
 }
 
 /** Called when the API rejects the current token for the given domain

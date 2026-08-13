@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
-import { RequireSuperAdmin, RequireTenantUser } from './components/RequireAuth';
+import { RequireSuperAdmin, RequireTenantOwner, RequireTenantUser } from './components/RequireAuth';
 import { TenantProvider } from './context/TenantContext';
 import CustomersSuperAdminView from './pages/modules/customers/SuperAdminView';
 import CustomersTenantView from './pages/modules/customers/TenantView';
@@ -7,6 +7,8 @@ import EmployeesSuperAdminView from './pages/modules/employees/SuperAdminView';
 import EmployeesTenantView from './pages/modules/employees/TenantView';
 import CompanyFieldConfigPage from './pages/superadmin/CompanyFieldConfigPage';
 import CompanyLimitsPage from './pages/superadmin/CompanyLimitsPage';
+import CompanyRolesPage from './pages/superadmin/CompanyRolesPage';
+import CompanyStaffPermissionsPage from './pages/superadmin/CompanyStaffPermissionsPage';
 import CompanyUsersPage from './pages/superadmin/CompanyUsersPage';
 import SuperAdminDashboardPage from './pages/superadmin/DashboardPage';
 import FieldCatalogPage from './pages/superadmin/FieldCatalogPage';
@@ -14,6 +16,8 @@ import SuperAdminLoginPage from './pages/superadmin/LoginPage';
 import OnboardCompanyPage from './pages/superadmin/OnboardCompanyPage';
 import TenantDashboardPage from './pages/tenant/DashboardPage';
 import TenantLoginPage from './pages/tenant/LoginPage';
+import RolesPage from './pages/tenant/RolesPage';
+import StaffPermissionsPage from './pages/tenant/StaffPermissionsPage';
 
 function TenantRoutes() {
   const { companySlug } = useParams();
@@ -32,6 +36,14 @@ function TenantRoutes() {
         <Route
           path="customers"
           element={<RequireTenantUser slug={companySlug}><CustomersTenantView /></RequireTenantUser>}
+        />
+        <Route
+          path="staff"
+          element={<RequireTenantOwner slug={companySlug}><StaffPermissionsPage /></RequireTenantOwner>}
+        />
+        <Route
+          path="roles"
+          element={<RequireTenantOwner slug={companySlug}><RolesPage /></RequireTenantOwner>}
         />
       </Routes>
     </TenantProvider>
@@ -98,6 +110,14 @@ export default function App() {
       <Route
         path="/__superadmin/companies/:slug/limits"
         element={<RequireSuperAdmin><CompanyLimitsPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/staff"
+        element={<RequireSuperAdmin><CompanyStaffPermissionsPage /></RequireSuperAdmin>}
+      />
+      <Route
+        path="/__superadmin/companies/:slug/roles"
+        element={<RequireSuperAdmin><CompanyRolesPage /></RequireSuperAdmin>}
       />
 
       {/* Edit an existing company through the same step wizard as onboarding,

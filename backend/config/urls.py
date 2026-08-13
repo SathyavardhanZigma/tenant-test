@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/<slug:tenant_slug>/', include('modules.employees.urls')),
     path('api/<slug:tenant_slug>/', include('modules.customers.urls')),
     path('api/<slug:tenant_slug>/', include('tenants.urls_tenant_scoped')),
+    path('api/<slug:tenant_slug>/', include('core_auth.urls_roles')),
     path('api/<slug:tenant_slug>/auth/', include('core_auth.urls_tenant_scoped')),
 
     # Swagger / OpenAPI docs, grouped by tag to match the router structure above.

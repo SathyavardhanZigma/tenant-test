@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import StaffProfile
 from .serializers import SuperAdminLoginSerializer, TenantLoginSerializer
 
 
@@ -53,11 +54,21 @@ class TenantLoginView(APIView):
         if user is None:
             return Response({'detail': 'Invalid credentials.'}, status=status.HTTP_401_UNAUTHORIZED)
 
+        try:
+            staff_role = user.staff_profile.role
+        except StaffProfile.DoesNotExist:
+            # Pre-existing users created before this feature shipped have no
+            # profile yet — treat them as owners so nobody silently loses
+            # access they already had.
+            staff_role = StaffProfile.ROLE_OWNER
+
         refresh = RefreshToken.for_user(user)
         refresh['tenant_slug'] = request.tenant.slug
         refresh['role'] = 'tenant_user'
+        refresh['staff_role'] = staff_role
         return Response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
             'tenant': request.tenant.slug,
+            'staff_role': staff_role,
         })

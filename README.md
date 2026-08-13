@@ -36,11 +36,17 @@ uv venv                 # creates .venv (Python 3.12+, required by Django 6.1)
 uv sync                 # installs exact versions from uv.lock
 cp .env.example .env    # fill in real DB credentials
 mysql -u root -p -e "CREATE DATABASE tenant_platform_central CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-uv run python manage.py migrate
+uv run python manage.py makemigrations  # no-op if models are unchanged — migrations are already committed
+uv run python manage.py migrate                # applies tenants/core_auth/auth/contenttypes to the central DB only
 uv run python manage.py seed_field_catalog     # seeds the master Employee/Customer field list
 uv run python manage.py create_superadmin      # creates the tenant-registry superadmin login
 uv run python manage.py runserver
 ```
+
+`makemigrations`/`migrate` here only ever touch the **central** database — `employees`/`customers`
+are tenant-scoped apps (`TENANT_APPS` in `config/settings.py`) that `TenantRouter` routes away from
+`default`, so they only get migrated into a company's own database, as part of onboarding
+(`tenants/provisioning.py`) or via `manage.py migrate_all_tenants` afterwards.
 
 Without uv: `pip install -r requirements.txt` and drop the `uv run` prefix.
 

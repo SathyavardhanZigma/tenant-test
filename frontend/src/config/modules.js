@@ -17,6 +17,17 @@ export const AVAILABLE_MODULES = [
     label: 'Customers',
     description: 'Customer records and customer-specific fields.',
   },
+  {
+    // No `entity` — Roles has no FieldCatalog-driven dynamic schema (see
+    // core_auth.models.Role); it's a fixed id/name list, not a per-tenant
+    // column set. Screens that build FieldCatalog sections per module (the
+    // Fields step of onboarding, CompanyFieldConfigPage) must skip modules
+    // with no `entity` rather than rendering an empty section for them.
+    key: 'roles',
+    entity: null,
+    label: 'Roles',
+    description: 'The Role choices available on the Employee form.',
+  },
 ];
 
 /** module_key -> entity ('employees' -> 'employee'), derived rather than

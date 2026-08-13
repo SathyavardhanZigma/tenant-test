@@ -5,6 +5,8 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core_auth.models import StaffProfile
+
 from ..db_registry import register_tenant_database
 from ..entities import ENTITY_TO_MODULE_KEY, MODULE_CHOICES
 from ..models import FieldCatalog, Tenant, TenantFieldConfig, TenantModule, TenantTableLimit
@@ -194,6 +196,7 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         if request.method == 'GET':
             limits_by_table = {tl.table_key: tl.max_records for tl in tenant.table_limits.all()}
+            enabled_keys = set(tenant.modules.filter(enabled=True).values_list('module_key', flat=True))
             return Response({
                 'tier': tenant.tier,
                 'plan': tenant.plan,
@@ -201,6 +204,7 @@ class TenantViewSet(viewsets.ModelViewSet):
                 'tables': [
                     {'table_key': key, 'label': label, 'max_records': limits_by_table.get(key)}
                     for key, label in TenantTableLimit.TABLE_CHOICES
+                    if key in enabled_keys
                 ],
             })
 
@@ -233,14 +237,25 @@ class TenantViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get', 'post'])
     def users(self, request, pk=None):
         """GET: usernames that can log in to this tenant (never returns
-        passwords — they're hashed, one-way). POST: create a new login user
-        directly in this tenant's own database (each company has a fully
-        separate auth_user table — see DOCUMENTATION.md §8.4)."""
+        passwords — they're hashed, one-way), with each user's owner/staff
+        role. POST: create a new login user directly in this tenant's own
+        database (each company has a fully separate auth_user table — see
+        DOCUMENTATION.md §8.4). The very first user created for a tenant
+        becomes that company's owner (full implicit access to everything the
+        company is entitled to); every subsequent user is plain staff, whose
+        module/field access is governed by StaffModuleGrant/StaffFieldGrant
+        (see core_auth.views_tenant_scoped.StaffPermissionViewSet)."""
         tenant = self.get_object()
 
         if request.method == 'GET':
-            usernames = User.objects.using(tenant.slug).values_list('username', flat=True)
-            return Response([{'username': u} for u in usernames])
+            users = User.objects.using(tenant.slug).select_related('staff_profile')
+            return Response([
+                {
+                    'username': u.username,
+                    'role': u.staff_profile.role if hasattr(u, 'staff_profile') else StaffProfile.ROLE_OWNER,
+                }
+                for u in users
+            ])
 
         username = request.data.get('username', '').strip()
         password = request.data.get('password', '')
@@ -251,5 +266,8 @@ class TenantViewSet(viewsets.ModelViewSet):
         if User.objects.using(tenant.slug).filter(username=username).exists():
             return Response({'detail': 'That username already exists for this company.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        User.objects.using(tenant.slug).create(username=username, password=make_password(password))
-        return Response({'username': username}, status=status.HTTP_201_CREATED)
+        is_first_user = not User.objects.using(tenant.slug).exists()
+        user = User.objects.using(tenant.slug).create(username=username, password=make_password(password))
+        role = StaffProfile.ROLE_OWNER if is_first_user else StaffProfile.ROLE_STAFF
+        StaffProfile.objects.using(tenant.slug).create(user=user, role=role)
+        return Response({'username': username, 'role': role}, status=status.HTTP_201_CREATED)
