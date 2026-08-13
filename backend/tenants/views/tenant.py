@@ -194,6 +194,7 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         if request.method == 'GET':
             limits_by_table = {tl.table_key: tl.max_records for tl in tenant.table_limits.all()}
+            enabled_keys = set(tenant.modules.filter(enabled=True).values_list('module_key', flat=True))
             return Response({
                 'tier': tenant.tier,
                 'plan': tenant.plan,
@@ -201,6 +202,7 @@ class TenantViewSet(viewsets.ModelViewSet):
                 'tables': [
                     {'table_key': key, 'label': label, 'max_records': limits_by_table.get(key)}
                     for key, label in TenantTableLimit.TABLE_CHOICES
+                    if key in enabled_keys
                 ],
             })
 

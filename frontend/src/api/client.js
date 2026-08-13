@@ -23,6 +23,11 @@ function resolveDomain(config) {
   return url.startsWith('/superadmin') || url.startsWith('/auth/superadmin') ? 'superadmin' : 'tenant_user';
 }
 
+// Methods that mutate data (create/update/delete) — logged to the console
+// so every write, from any service/page in the app, shows up in one place
+// without each call site adding its own console.log.
+const MUTATING_METHODS = ['post', 'put', 'patch', 'delete'];
+
 apiClient.interceptors.request.use((requestConfig) => {
   const domain = resolveDomain(requestConfig);
   requestConfig.authDomain = domain;
@@ -30,12 +35,37 @@ apiClient.interceptors.request.use((requestConfig) => {
   if (token) {
     requestConfig.headers.Authorization = `Bearer ${token}`;
   }
+
+  const method = (requestConfig.method || '').toLowerCase();
+  if (MUTATING_METHODS.includes(method)) {
+    console.log(
+      `[API] → ${method.toUpperCase()} ${requestConfig.baseURL || ''}${requestConfig.url}`,
+      requestConfig.data ?? '',
+    );
+  }
+
   return requestConfig;
 });
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = (response.config.method || '').toLowerCase();
+    if (MUTATING_METHODS.includes(method)) {
+      console.log(
+        `[API] ✓ ${method.toUpperCase()} ${response.config.url} — ${response.status}`,
+        response.data,
+      );
+    }
+    return response;
+  },
   (error) => {
+    const method = (error.config?.method || '').toLowerCase();
+    if (MUTATING_METHODS.includes(method)) {
+      console.log(
+        `[API] ✗ ${method.toUpperCase()} ${error.config?.url} — ${error.response?.status ?? 'network error'}`,
+        error.response?.data ?? error.message,
+      );
+    }
     // A rejected/expired/missing token should never linger and keep breaking
     // subsequent requests — clear it and send the user back to log in,
     // rather than leaving them on a page that just shows "Failed to load ...".
