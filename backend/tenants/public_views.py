@@ -16,7 +16,7 @@ class TenantPublicInfoView(APIView):
         return Response({
             'company_name': tenant.company_name,
             'slug': tenant.slug,
-            'logo_url': tenant.logo.url if tenant.logo else None,
+            'logo_url': request.build_absolute_uri(tenant.logo.url) if tenant.logo else None,
             'primary_color': tenant.primary_color,
             'secondary_color': tenant.secondary_color,
             'plan': tenant.plan,

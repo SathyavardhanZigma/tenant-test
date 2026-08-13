@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { clearSession } from '../../../api/auth';
+import { clearSuperAdminSession } from '../../../api/auth';
 import AppHeader from '../../../components/ui/AppHeader';
 import EntityManager from '../shared/EntityManager';
 import { SUPERADMIN_LINKS } from '../../superadmin/links';
@@ -17,16 +17,17 @@ export default function EmployeesSuperAdminView() {
     <AppHeader
       brand="Superadmin"
       brandIcon="🛡️"
+      sessionDomain="superadmin"
       brandHref="/__superadmin/dashboard"
       links={SUPERADMIN_LINKS}
       onLogout={() => {
-        clearSession();
+        clearSuperAdminSession();
         navigate('/__superadmin');
       }}
     />
   );
 
   return (
-    <EntityManager slug={slug} entity="employees" title={`${slug} — Employees (Superadmin view)`} header={header} />
+    <EntityManager slug={slug} entity="employees" title={`${slug} — Employees (Superadmin view)`} header={header} asSuperAdmin />
   );
 }

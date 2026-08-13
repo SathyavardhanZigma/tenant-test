@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { clearSession } from '../../api/auth';
+import { clearSuperAdminSession } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -77,10 +77,11 @@ export default function FieldCatalogPage() {
     <AppHeader
       brand="Superadmin"
       brandIcon="🛡️"
+      sessionDomain="superadmin"
       brandHref="/__superadmin/dashboard"
       links={SUPERADMIN_LINKS}
       onLogout={() => {
-        clearSession();
+        clearSuperAdminSession();
         navigate('/__superadmin');
       }}
     />

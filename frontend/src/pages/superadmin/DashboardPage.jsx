@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { clearSession } from '../../api/auth';
+import { clearSuperAdminSession } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -85,10 +85,11 @@ export default function SuperAdminDashboardPage() {
     <AppHeader
       brand="Superadmin"
       brandIcon="🛡️"
+      sessionDomain="superadmin"
       brandHref="/__superadmin/dashboard"
       links={SUPERADMIN_LINKS}
       onLogout={() => {
-        clearSession();
+        clearSuperAdminSession();
         navigate('/__superadmin');
       }}
     />
@@ -156,9 +157,22 @@ export default function SuperAdminDashboardPage() {
                   className="grid gap-4 px-6 py-6 text-sm transition hover:bg-butter-50 lg:grid-cols-[1.2fr_1.4fr_1.1fr_1.7fr_.9fr_.7fr_1.17fr] lg:items-center lg:gap-5"
                 >
                   <Field label="Company">
-                    <span className="block font-medium text-neutral-900">
-                      {tenant.company_name}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      {tenant.logo ? (
+                        <img
+                          src={tenant.logo}
+                          alt=""
+                          className="size-8 shrink-0 rounded-lg object-cover ring-1 ring-neutral-200"
+                        />
+                      ) : (
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-sm">
+                          🏢
+                        </span>
+                      )}
+                      <span className="truncate font-medium text-neutral-900">
+                        {tenant.company_name}
+                      </span>
+                    </div>
                   </Field>
 
                   <Field label="Login URL">

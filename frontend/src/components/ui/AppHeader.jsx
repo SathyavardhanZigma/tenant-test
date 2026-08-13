@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { getSessionSeed } from '../../api/auth';
 import Avatar from './Avatar';
 
-export default function AppHeader({ brand, brandIcon = '🏢', brandHref, links = [], onLogout }) {
+export default function AppHeader({ brand, brandIcon = '🏢', brandHref, links = [], onLogout, sessionDomain = 'tenant_user' }) {
   const location = useLocation();
 
   return (
@@ -34,7 +34,7 @@ export default function AppHeader({ brand, brandIcon = '🏢', brandHref, links 
 
           {onLogout && (
             <div className="ml-3 flex items-center gap-2 border-l border-neutral-200 pl-3">
-              <Avatar seed={getSessionSeed()} size={30} />
+              <Avatar seed={getSessionSeed(sessionDomain)} size={30} />
               <button
                 onClick={onLogout}
                 className="rounded-lg px-3 py-2 text-sm font-medium text-neutral-500 transition hover:bg-red-50 hover:text-red-600"

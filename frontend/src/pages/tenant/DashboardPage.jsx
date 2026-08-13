@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { clearSession, getSessionSeed } from '../../api/auth';
+import { clearTenantSession, getSessionSeed } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Avatar from '../../components/ui/Avatar';
 import { Card } from '../../components/ui/Card';
@@ -22,7 +22,7 @@ export default function DashboardPage() {
       brandHref={`/${slug}/dashboard`}
       links={buildTenantLinks(slug, tenant)}
       onLogout={() => {
-        clearSession();
+        clearTenantSession();
         navigate(`/${slug}/login`);
       }}
     />
@@ -36,7 +36,7 @@ export default function DashboardPage() {
         {tenant?.logo_url ? (
           <img src={tenant.logo_url} alt="" className="size-14 rounded-xl object-cover ring-1 ring-neutral-200" />
         ) : (
-          <Avatar seed={getSessionSeed()} size={56} className="rounded-xl ring-1 ring-neutral-200" />
+          <Avatar seed={getSessionSeed('tenant_user')} size={56} className="rounded-xl ring-1 ring-neutral-200" />
         )}
         <div>
           <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900">

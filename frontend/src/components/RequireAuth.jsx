@@ -1,13 +1,11 @@
 import { Navigate } from 'react-router-dom';
+import { getAccessToken, getTenantSlug } from '../api/auth';
 
 /** Guards superadmin-only routes: redirects to /__superadmin immediately if
  * there's no valid-looking session, instead of rendering the page and letting
  * its first API call fail with a raw "Failed to load ..." error. */
 export function RequireSuperAdmin({ children }) {
-  const token = localStorage.getItem('access_token');
-  const role = localStorage.getItem('role');
-
-  if (!token || role !== 'superadmin') {
+  if (!getAccessToken('superadmin')) {
     return <Navigate to="/__superadmin" replace />;
   }
   return children;
@@ -17,12 +15,9 @@ export function RequireSuperAdmin({ children }) {
  * company's own login if there's no session, or if the session belongs to a
  * different company (e.g. following a stale link after switching tenants). */
 export function RequireTenantUser({ slug, children }) {
-  const token = localStorage.getItem('access_token');
-  const role = localStorage.getItem('role');
-  const tenantSlug = localStorage.getItem('tenant_slug');
-
-  if (!token || role !== 'tenant_user' || tenantSlug !== slug) {
+  if (!getAccessToken('tenant_user') || getTenantSlug() !== slug) {
     return <Navigate to={`/${slug}/login`} replace />;
   }
   return children;
 }
+

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { clearSession } from '../../api/auth';
+import { clearSuperAdminSession } from '../../api/auth';
 import AppHeader from '../../components/ui/AppHeader';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -77,6 +77,24 @@ export default function OnboardCompanyPage() {
   // Enterprise so picking Trial doesn't silently leave a tenant read-only.
   const [plan, setPlan] = useState('enterprise');
   const [logo, setLogo] = useState(null);
+  const [currentLogoUrl, setCurrentLogoUrl] = useState(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState(null);
+
+  // Preview whichever logo will actually be saved: the newly picked file, or
+  // (in edit mode) the one already stored for this company. `logo` only ever
+  // holds a File object here, never a fetched-from-server URL, so this never
+  // re-derives a blob: URL from itself.
+  useEffect(() => {
+    if (!logo) {
+      setLogoPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(logo);
+    setLogoPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [logo]);
+
+  const logoThumbnailUrl = logoPreviewUrl || (isEditMode ? currentLogoUrl : null);
   const [tables, setTables] = useState(DEFAULT_TABLES);
   const [fieldRows, setFieldRows] = useState([]);
   const [submitError, setSubmitError] = useState(null);
@@ -114,6 +132,7 @@ export default function OnboardCompanyPage() {
           setModules((tenant.modules ?? []).filter((m) => m.enabled).map((m) => m.module_key));
           setTier(tenant.tier ?? 'trial');
           setPlan(tenant.plan ?? 'basic');
+          setCurrentLogoUrl(tenant.logo ?? null);
 
           const [limitsRes, fieldConfigRes] = await Promise.all([
             tenantsService.readTableLimits(tenant.id),
@@ -230,14 +249,26 @@ export default function OnboardCompanyPage() {
 
     try {
       if (isEditMode) {
-        await tenantsService.update(tenantId, {
-          company_name: form.company_name,
-          owner_name: form.owner_name,
-          owner_email: form.owner_email,
-          owner_phone: form.owner_phone,
-          primary_color: form.primary_color,
-          secondary_color: form.secondary_color,
-        });
+        if (logo) {
+          const updatePayload = new FormData();
+          updatePayload.append('company_name', form.company_name);
+          updatePayload.append('owner_name', form.owner_name);
+          updatePayload.append('owner_email', form.owner_email);
+          updatePayload.append('owner_phone', form.owner_phone);
+          updatePayload.append('primary_color', form.primary_color);
+          updatePayload.append('secondary_color', form.secondary_color);
+          updatePayload.append('logo', logo);
+          await tenantsService.update(tenantId, updatePayload);
+        } else {
+          await tenantsService.update(tenantId, {
+            company_name: form.company_name,
+            owner_name: form.owner_name,
+            owner_email: form.owner_email,
+            owner_phone: form.owner_phone,
+            primary_color: form.primary_color,
+            secondary_color: form.secondary_color,
+          });
+        }
         await tenantsService.updateModules(tenantId, modules);
         await tenantsService.updateTableLimits(tenantId, { tier, plan, tables });
         if (fieldConfigPayload.length > 0) {
@@ -317,10 +348,11 @@ export default function OnboardCompanyPage() {
     <AppHeader
       brand="Superadmin"
       brandIcon="🛡️"
+      sessionDomain="superadmin"
       brandHref="/__superadmin/dashboard"
       links={SUPERADMIN_LINKS}
       onLogout={() => {
-        clearSession();
+        clearSuperAdminSession();
         navigate('/__superadmin');
       }}
     />
@@ -391,18 +423,28 @@ export default function OnboardCompanyPage() {
                   <Label htmlFor="owner_phone">Owner Phone</Label>
                   <Input id="owner_phone" value={form.owner_phone} onChange={updateField('owner_phone')} />
                 </div>
-                {!isEditMode && (
-                  <div className="md:col-span-2 lg:col-span-1">
-                    <Label htmlFor="logo">Company Logo</Label>
+                <div className="md:col-span-2 lg:col-span-1">
+                  <Label htmlFor="logo">Company Logo</Label>
+                  <div className="flex items-center gap-3">
+                    {logoThumbnailUrl && (
+                      <img
+                        src={logoThumbnailUrl}
+                        alt=""
+                        className="size-10 shrink-0 rounded-lg object-cover ring-1 ring-neutral-200"
+                      />
+                    )}
                     <input
                       id="logo"
                       type="file"
-                      accept="image/*"
+                      accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                       onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
                       className="block w-full text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-butter-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-butter-800 hover:file:bg-butter-100"
                     />
                   </div>
-                )}
+                  {isEditMode && (
+                    <p className="mt-1 text-xs text-neutral-500">PNG, JPG or JPEG. Leave blank to keep the current logo.</p>
+                  )}
+                </div>
 
                 <div className="md:col-span-2 lg:col-span-3">
                   <p className="mb-2 text-sm font-medium text-neutral-700">Login page branding</p>

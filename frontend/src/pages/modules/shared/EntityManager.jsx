@@ -61,8 +61,8 @@ function emptyFormFrom(schema) {
  * core_auth/permissions.py IsTenantUserOrSuperAdmin) — Superadmin views never
  * pass it, since Superadmin always has full CRUD regardless of tenant.plan.
  */
-export default function EntityManager({ slug, entity, title, header, readOnly = false }) {
-  const service = useMemo(() => createEntityService(slug, entity), [slug, entity]);
+export default function EntityManager({ slug, entity, title, header, readOnly = false, asSuperAdmin = false }) {
+  const service = useMemo(() => createEntityService(slug, entity, { asSuperAdmin }), [slug, entity, asSuperAdmin]);
 
   const [schema, setSchema] = useState(null);
   const [rows, setRows] = useState([]);

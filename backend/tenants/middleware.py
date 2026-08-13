@@ -12,6 +12,7 @@ TENANT_EXEMPT_PREFIXES = (
     '/swagger',
     '/redoc',
     '/admin',
+    '/media',
 )
 
 

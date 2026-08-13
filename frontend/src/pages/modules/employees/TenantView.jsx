@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { clearSession } from '../../../api/auth';
+import { clearTenantSession } from '../../../api/auth';
 import AppHeader from '../../../components/ui/AppHeader';
 import { useTenant } from '../../../context/TenantContext';
 import EntityManager from '../shared/EntityManager';
@@ -15,7 +15,7 @@ export default function EmployeesTenantView() {
       brandHref={`/${slug}/dashboard`}
       links={buildTenantLinks(slug, tenant)}
       onLogout={() => {
-        clearSession();
+        clearTenantSession();
         navigate(`/${slug}/login`);
       }}
     />

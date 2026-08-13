@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { handleAuthExpired } from './auth';
+import { getAccessToken, handleAuthExpired } from './auth';
 
 // Pinned to 127.0.0.1 rather than 'localhost': the Django dev server binds
 // IPv4 only by default, but browsers can resolve 'localhost' to the IPv6
@@ -10,8 +10,23 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000
 
 const apiClient = axios.create({ baseURL: API_BASE_URL });
 
+// Which session's token a request needs. Inferred from the URL by default
+// (/superadmin/... and /auth/superadmin/... are superadmin-only; everything
+// else is a tenant-scoped path). Superadmin pages that browse a specific
+// company's data (EmployeesSuperAdminView etc.) hit those same tenant-shaped
+// URLs but must authenticate as the superadmin, so they pass `authDomain:
+// 'superadmin'` explicitly in the request config to override the guess —
+// see services/entityService.js's `asSuperAdmin` option.
+function resolveDomain(config) {
+  if (config.authDomain) return config.authDomain;
+  const url = config.url || '';
+  return url.startsWith('/superadmin') || url.startsWith('/auth/superadmin') ? 'superadmin' : 'tenant_user';
+}
+
 apiClient.interceptors.request.use((requestConfig) => {
-  const token = localStorage.getItem('access_token');
+  const domain = resolveDomain(requestConfig);
+  requestConfig.authDomain = domain;
+  const token = getAccessToken(domain);
   if (token) {
     requestConfig.headers.Authorization = `Bearer ${token}`;
   }
@@ -35,7 +50,7 @@ apiClient.interceptors.response.use(
     const detail = error.response?.data?.detail;
     const noCredentials = status === 403 && detail === 'Authentication credentials were not provided.';
     if (status === 401 || noCredentials) {
-      handleAuthExpired();
+      handleAuthExpired(error.config?.authDomain === 'superadmin' ? 'superadmin' : 'tenant_user');
     }
     return Promise.reject(error);
   },
