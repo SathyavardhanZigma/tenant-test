@@ -70,11 +70,15 @@ function extractErrorMessage(err) {
   return data?.detail;
 }
 
-function emptyFormFrom(schema) {
+function emptyFormFrom(schema, withLogin) {
   const values = {};
   schema.filter((field) => !field.readonly).forEach((field) => {
     values[field.key] = field.data_type === 'boolean' ? false : '';
   });
+  if (withLogin) {
+    values.login_username = '';
+    values.login_password = '';
+  }
   return values;
 }
 
@@ -94,6 +98,11 @@ function emptyFormFrom(schema) {
  */
 export default function EntityManager({ slug, entity, title, header, readOnly = false, asSuperAdmin = false }) {
   const service = useMemo(() => createEntityService(slug, entity, { asSuperAdmin }), [slug, entity, asSuperAdmin]);
+  // Only Employee records can carry an optional login (see
+  // modules.employees.serializers.build_dynamic_employee_serializer) — once
+  // attached, the owner manages that login's permissions on the Staff page
+  // like any other staff account.
+  const supportsLogin = entity === 'employees';
 
   const [schema, setSchema] = useState(null);
   const [rows, setRows] = useState([]);
@@ -116,7 +125,7 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
     Promise.all([service.getSchema(), service.read({ page: targetPage })])
       .then(([schemaRes, rowsRes]) => {
         setSchema(schemaRes.data);
-        setForm((prev) => (Object.keys(prev).length ? prev : emptyFormFrom(schemaRes.data)));
+        setForm((prev) => (Object.keys(prev).length ? prev : emptyFormFrom(schemaRes.data, supportsLogin)));
         const data = rowsRes.data;
         if (Array.isArray(data)) {
           // Non-paginated response (shouldn't normally happen — defensive fallback)
@@ -143,13 +152,17 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const updateLoginField = (key) => (event) => {
+    setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  };
+
   const handleSubmit = useThrottledCallback(async (event) => {
     event.preventDefault();
     setFormError(null);
     setSubmitting(true);
     try {
       await service.create(form);
-      setForm(emptyFormFrom(schema));
+      setForm(emptyFormFrom(schema, supportsLogin));
       load(1);
     } catch (err) {
       setFormError(extractErrorMessage(err) || 'Could not save. Check the fields and try again.');
@@ -174,6 +187,12 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
     schema.filter((field) => !field.readonly).forEach((field) => {
       values[field.key] = field.data_type === 'boolean' ? Boolean(row[field.key]) : (row[field.key] ?? '');
     });
+    if (supportsLogin) {
+      // Never prefill the password — leaving it blank means "keep the
+      // current one"; a username is prefilled since renaming is allowed.
+      values.login_username = row.username ?? '';
+      values.login_password = '';
+    }
     setEditForm(values);
   };
 
@@ -186,6 +205,10 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
   const updateEditField = (key, dataType) => (event) => {
     const value = dataType === 'boolean' ? event.target.checked : event.target.value;
     setEditForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateEditLoginField = (key) => (event) => {
+    setEditForm((prev) => ({ ...prev, [key]: event.target.value }));
   };
 
   const saveEdit = useThrottledCallback(async () => {
@@ -215,6 +238,7 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
   // `code` is server-generated (see tenants.mixins.TenantEntityViewSetMixin) —
   // never editable, so it's excluded from the Add form regardless of plan.
   const editableSchema = schema.filter((field) => !field.readonly);
+  const totalColumns = schema.length + (supportsLogin ? 1 : 0) + (readOnly ? 0 : 1);
 
   return (
     <PageShell maxWidth="max-w-6xl" header={header}>
@@ -246,6 +270,32 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
                 />
               </div>
             ))}
+
+            {supportsLogin && (
+              <>
+                <div>
+                  <Label htmlFor="login_username">Login username (optional)</Label>
+                  <Input
+                    id="login_username"
+                    value={form.login_username ?? ''}
+                    onChange={updateLoginField('login_username')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="login_password">Login password</Label>
+                  <Input
+                    id="login_password"
+                    type="password"
+                    value={form.login_password ?? ''}
+                    onChange={updateLoginField('login_password')}
+                  />
+                </div>
+                <p className="text-xs text-neutral-500 sm:col-span-2">
+                  Give this employee a login (at least 8 characters) so they can sign in — leave both
+                  blank if they don't need one. Permissions are managed afterwards on the Staff page.
+                </p>
+              </>
+            )}
 
             {formError && (
               isUpgradeError(formError) ? (
@@ -280,6 +330,9 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
                   {field.label}
                 </th>
               ))}
+              {supportsLogin && (
+                <th className="whitespace-nowrap px-6 py-3.5 font-medium">Login</th>
+              )}
               {!readOnly && <th className="px-6 py-3.5" />}
             </tr>
           </thead>
@@ -300,6 +353,29 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
                       ) : field.data_type === 'boolean' ? (row[field.key] ? 'Yes' : 'No') : row[field.key]}
                     </td>
                   ))}
+                  {supportsLogin && (
+                    <td className="whitespace-nowrap px-6 py-4 text-neutral-700">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <Input
+                            placeholder="Login username"
+                            value={editForm.login_username ?? ''}
+                            onChange={updateEditLoginField('login_username')}
+                            className="min-w-32"
+                          />
+                          <Input
+                            placeholder={row.username ? 'New password (optional)' : 'Password'}
+                            type="password"
+                            value={editForm.login_password ?? ''}
+                            onChange={updateEditLoginField('login_password')}
+                            className="min-w-32"
+                          />
+                        </div>
+                      ) : (
+                        row.username || <span className="text-neutral-400">No login</span>
+                      )}
+                    </td>
+                  )}
                   {!readOnly && (
                     <td className="px-6 py-4 text-right">
                       {isEditing ? (
@@ -341,14 +417,14 @@ export default function EntityManager({ slug, entity, title, header, readOnly = 
             })}
             {editingId && editError && (
               <tr>
-                <td colSpan={schema.length + (readOnly ? 0 : 1)} className="px-6 py-2">
+                <td colSpan={totalColumns} className="px-6 py-2">
                   <p role="alert" className="text-sm text-red-600">{editError}</p>
                 </td>
               </tr>
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={schema.length + (readOnly ? 0 : 1)} className="px-2">
+                <td colSpan={totalColumns} className="px-2">
                   <EmptyState icon="📋" title="No records yet" hint={`Add your first ${entityLabel} above.`} />
                 </td>
               </tr>

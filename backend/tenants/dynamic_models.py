@@ -15,6 +15,7 @@ registry doesn't allow re-registering the same model name twice, and the
 field set only changes when Superadmin edits TenantFieldConfig, which is rare.
 """
 
+from django.conf import settings
 from django.db import models
 
 from modules.customers.models import Customer
@@ -47,6 +48,11 @@ def get_dynamic_model(entity, tenant):
         'created_at': models.DateTimeField(auto_now_add=True),
         'updated_at': models.DateTimeField(auto_now=True),
     }
+    if entity == 'employee':
+        attrs['user'] = models.OneToOneField(
+            settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+            related_name='+',
+        )
     for cfg in configs:
         attrs[cfg.field.field_key] = build_model_field(cfg.field.data_type)
 

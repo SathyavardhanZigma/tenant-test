@@ -4,6 +4,7 @@ see what the company itself is entitled to (superadmin's TenantModule/
 TenantFieldConfig selections) and to decide which of that a given staff
 user can see/edit — see core_auth.models.StaffModuleGrant/StaffFieldGrant."""
 
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -59,7 +60,14 @@ class StaffListView(APIView):
     an owner pick who to grant module/field permissions to. Owners can't
     reach Superadmin's user-registry endpoint (/api/superadmin/tenants/<id>/
     users/), so this is the only way an owner can see their own company's
-    staff usernames."""
+    staff usernames.
+
+    POST: an owner creates a new staff login directly in their own tenant DB,
+    without needing Superadmin. Always role=staff — the owner account itself
+    is only ever created by Superadmin (the tenant's first user, see
+    tenants.views.tenant.TenantViewSet.users). A freshly created staff user
+    has no module/field grants yet; the owner sets those via
+    StaffPermissionView afterwards."""
 
     permission_classes = [IsTenantOwner]
 
@@ -73,6 +81,21 @@ class StaffListView(APIView):
             }
             for u in users
         ])
+
+    def post(self, request, **kwargs):
+        tenant = request.tenant
+        username = request.data.get('username', '').strip()
+        password = request.data.get('password', '')
+        if not username or not password:
+            return Response({'detail': 'username and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(password) < 8:
+            return Response({'detail': 'Password must be at least 8 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.using(tenant.slug).filter(username=username).exists():
+            return Response({'detail': 'That username already exists for this company.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.using(tenant.slug).create(username=username, password=make_password(password))
+        StaffProfile.objects.using(tenant.slug).create(user=user, role=StaffProfile.ROLE_STAFF)
+        return Response({'username': username, 'role': StaffProfile.ROLE_STAFF}, status=status.HTTP_201_CREATED)
 
 
 class StaffPermissionView(APIView):
